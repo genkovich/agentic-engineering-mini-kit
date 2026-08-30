@@ -1,0 +1,19 @@
+{
+  "name": "agent-ops-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first observability dashboard over Claude Code session logs. Teaching project for the Agentic Engineering mini-course.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "verify": "node --test --test-reporter=spec \"test/*.test.js\"",
+    "verify:live": "node scripts/verify-live.mjs"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

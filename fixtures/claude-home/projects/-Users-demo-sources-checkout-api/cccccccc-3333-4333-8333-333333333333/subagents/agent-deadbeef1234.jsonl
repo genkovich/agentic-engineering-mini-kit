@@ -1,0 +1,1 @@
+{"type":"user","uuid":"00000015-1111-4222-8333-444455556666","parentUuid":null,"sessionId":"agent-deadbeef1234","cwd":"/Users/demo/sources/checkout-api","timestamp":"2026-08-21T18:00:35.000Z","message":{"role":"user","content":"subagent transcript, not a session"}}
