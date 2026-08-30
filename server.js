@@ -6,6 +6,8 @@ import { listSources } from './lib/sources.js';
 import { layout } from './views/layout.js';
 import { sessionsPage } from './views/sessions.js';
 import { sessionPage } from './views/session.js';
+import { livePage } from './views/live.js';
+import { SessionWatcher, activeSessions } from './lib/watch.js';
 import { parseSession, parseLines } from './lib/claude/parse.js';
 import { tokenReport } from './lib/claude/tokens.js';
 import { readFileSync } from 'node:fs';
@@ -64,6 +66,46 @@ app.get('/', (req, res) => {
     sessions: enrichWithIdentity(all.slice(0, limit)),
     home: claudeHome(),
     limit: { total: all.length },
+  }));
+});
+
+// S5 — one watcher for the whole process, fanned out to every open SSE connection.
+export const watcher = new SessionWatcher();
+const clients = new Set();
+
+watcher.on('append', ({ session, events }) => {
+  const frame = `event: append\ndata: ${JSON.stringify({
+    sessionId: session.sessionId, project: session.projectLabel, events,
+  })}\n\n`;
+  for (const res of clients) res.write(frame);
+});
+
+app.get('/api/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  res.write('event: ready\ndata: {}\n\n');
+  clients.add(res);
+  watcher.start();
+  req.on('close', () => {
+    clients.delete(res);
+    if (clients.size === 0) watcher.stop();
+  });
+});
+
+app.get('/api/live', (req, res) => {
+  const windowMs = Number(req.query.windowMs) || undefined;
+  res.json({ active: enrichWithIdentity(activeSessions({ windowMs })) });
+});
+
+app.get('/live', (req, res) => {
+  const windowMs = Number(req.query.windowMs) || 10 * 60 * 1000;
+  res.type('html').send(livePage({
+    active: enrichWithIdentity(activeSessions({ windowMs })),
+    home: claudeHome(),
+    windowMinutes: Math.round(windowMs / 60000),
   }));
 });
 
