@@ -6,7 +6,9 @@ import { listSources } from './lib/sources.js';
 import { layout } from './views/layout.js';
 import { sessionsPage } from './views/sessions.js';
 import { sessionPage } from './views/session.js';
-import { parseSession } from './lib/claude/parse.js';
+import { parseSession, parseLines } from './lib/claude/parse.js';
+import { tokenReport } from './lib/claude/tokens.js';
+import { readFileSync } from 'node:fs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const app = express();
@@ -37,14 +39,22 @@ function findSession(id) {
 app.get('/api/sessions/:id', (req, res) => {
   const session = findSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'session not found' });
-  res.json({ session: enrichWithIdentity([session])[0], timeline: parseSession(session.file) });
+  res.json({
+    session: enrichWithIdentity([session])[0],
+    timeline: parseSession(session.file),
+    tokens: tokenReport([...parseLines(readFileSync(session.file, 'utf8'))]),
+  });
 });
 
 app.get('/sessions/:id', (req, res) => {
   const session = findSession(req.params.id);
   if (!session) return res.status(404).type('html').send(layout({ title: 'not found', body: '<h1>404</h1>' }));
-  const timeline = parseSession(session.file);
-  res.type('html').send(sessionPage({ session: enrichWithIdentity([session])[0], timeline }));
+  const records = [...parseLines(readFileSync(session.file, 'utf8'))];
+  res.type('html').send(sessionPage({
+    session: enrichWithIdentity([session])[0],
+    timeline: parseSession(session.file),
+    tokens: tokenReport(records),
+  }));
 });
 
 app.get('/', (req, res) => {

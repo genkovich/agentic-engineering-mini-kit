@@ -46,9 +46,14 @@ const user = (sessionId, cwd, ts, content) => ({
   timestamp: ts, message: { role: 'user', content },
 });
 
-const assistant = (sessionId, cwd, ts, content, u) => ({
-  type: 'assistant', uuid: uuid(), parentUuid: null, sessionId, cwd,
-  timestamp: ts, message: { role: 'assistant', model: 'claude-opus-5', content, usage: u },
+// One API response is written as SEVERAL assistant records — one per content block — and every one
+// of them repeats the SAME message.usage. Summing usage over assistant rows without deduplicating
+// on message.id overcounts by 2.63x on the real corpus. msgId lets a fixture reproduce that.
+let msgSeq = 0;
+const assistant = (sessionId, cwd, ts, content, u, msgId) => ({
+  type: 'assistant', uuid: uuid(), parentUuid: null, sessionId, cwd, timestamp: ts,
+  requestId: `req_fixture_${msgSeq}`,
+  message: { id: msgId ?? `msg_fixture_${++msgSeq}`, role: 'assistant', model: 'claude-opus-5', content, usage: u },
 });
 
 const aiTitle = (sessionId, title) => ({ type: 'ai-title', aiTitle: title, sessionId });
@@ -70,10 +75,13 @@ write(`${P1}/${S1ID}.jsonl`, [
   user(S1ID, CWD1, '2026-08-20T09:00:19.000Z', [
     { type: 'tool_result', tool_use_id: 'toolu_s1_a', is_error: false, content: '1 failing: expected 409, got 500' },
   ]),
+  // Same response, two records, one message.id. Counted once.
   assistant(S1ID, CWD1, '2026-08-20T09:01:02.000Z', [
     { type: 'text', text: 'Причина у відсутньому unique constraint. Правлю міграцію.' },
+  ], usage(90, 610, 22400, 0, 480), 'msg_fixture_dup'),
+  assistant(S1ID, CWD1, '2026-08-20T09:01:02.000Z', [
     { type: 'tool_use', id: 'toolu_s1_b', name: 'Edit', input: { file_path: '/Users/demo/sources/checkout-api/store.js' } },
-  ], usage(90, 610, 22400, 0, 480)),
+  ], usage(90, 610, 22400, 0, 480), 'msg_fixture_dup'),
   user(S1ID, CWD1, '2026-08-20T09:01:11.000Z', [
     { type: 'tool_result', tool_use_id: 'toolu_s1_b', is_error: false, content: 'Edit applied to store.js' },
   ]),
@@ -135,7 +143,8 @@ write(`${P2}/${S4ID}.jsonl`, [
   user(S4ID, CWD2, '2026-08-22T11:00:00.000Z', 'Покажи структуру теки components'),
   aiTitle(S4ID, 'Components folder tour'),
   { type: 'assistant', uuid: uuid(), sessionId: S4ID, cwd: CWD2, timestamp: '2026-08-22T11:00:05.000Z',
-    message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'Ось дерево.' }] } },
+    message: { id: 'msg_fixture_nousage', role: 'assistant', model: 'claude-opus-5',
+      content: [{ type: 'text', text: 'Ось дерево.' }] } },
 ]);
 
 // S-05: compaction boundary for the S4 marker
