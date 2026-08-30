@@ -1,6 +1,6 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync, statSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { startServer, fixtureHome } from './helpers.js';
 
@@ -9,9 +9,15 @@ process.env.WATCH_INTERVAL_MS = '100';
 const TARGET = join(fixtureHome, 'projects', '-Users-demo-notes',
   'ffffffff-6666-4666-8666-666666666666.jsonl');
 
-let original;
-before(() => { original = readFileSync(TARGET, 'utf8'); });
-after(() => writeFileSync(TARGET, original));   // the fixture is committed; put it back
+let original, originalStat;
+before(() => {
+  original = readFileSync(TARGET, 'utf8');
+  originalStat = statSync(TARGET);
+});
+after(() => {                                    // the fixture is committed; put it back byte and mtime
+  writeFileSync(TARGET, original);
+  utimesSync(TARGET, originalStat.atime, originalStat.mtime);
+});
 
 const srv = await startServer();
 after(() => srv.close());

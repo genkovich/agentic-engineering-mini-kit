@@ -5,8 +5,9 @@ mini-course: six thin slices, one lesson each.
 
 ```bash
 npm install
-npm run verify     # tests, on the synthetic fixture tree
-npm start          # http://127.0.0.1:4180, on real ~/.claude
+npm run verify        # 40 tests, on the synthetic fixture tree
+npm run verify:live   # the same acceptance checks against the real ~/.claude
+npm start             # http://127.0.0.1:4180
 ```
 
 ## Data source
@@ -32,6 +33,21 @@ One dependency: `express`. No build step, no framework, no TypeScript. Tests on 
 | `l5-start` | S4 token accounting |
 | `l6-start` | S5 live tail over SSE |
 | `l6-finish` | S6 analytics |
+
+## What the transcripts do and do not say
+
+Four things this dashboard refuses to guess at, because the data does not support them:
+
+- **Context window.** `model_context_window` is not a field. Grep the whole projects tree and every
+  hit is prose inside somebody's prompt. So no percentage of context is shown anywhere.
+- **Wall time.** Nothing records how long a session took. The span between the first and the last
+  timestamp is labelled *observed*, and the page says why: on real data it runs to 20 hours for a
+  session someone left open.
+- **Token totals from assistant records.** One API response is written as several assistant
+  records, each repeating the same `usage`. Over 333 real files that is 39 734 records against
+  19 250 responses — a 2.63x overcount. Everything is deduplicated on `message.id` first.
+- **Coverage.** The analytics endpoint parses the freshest N sessions and reports `scanned` and
+  `skipped` next to every number, instead of implying it read all 340.
 
 ## Adding a second agent
 

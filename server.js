@@ -7,6 +7,8 @@ import { layout } from './views/layout.js';
 import { sessionsPage } from './views/sessions.js';
 import { sessionPage } from './views/session.js';
 import { livePage } from './views/live.js';
+import { analyticsPage } from './views/analytics.js';
+import { buildStats } from './lib/stats.js';
 import { SessionWatcher, activeSessions } from './lib/watch.js';
 import { parseSession, parseLines } from './lib/claude/parse.js';
 import { tokenReport } from './lib/claude/tokens.js';
@@ -106,6 +108,18 @@ app.get('/live', (req, res) => {
     active: enrichWithIdentity(activeSessions({ windowMs })),
     home: claudeHome(),
     windowMinutes: Math.round(windowMs / 60000),
+  }));
+});
+
+// S6 — analytics.
+app.get('/api/analytics', (req, res) => {
+  res.json(buildStats({ scan: Number(req.query.scan) || undefined }));
+});
+
+app.get('/analytics', (req, res) => {
+  res.type('html').send(analyticsPage({
+    stats: buildStats({ scan: Number(req.query.scan) || undefined }),
+    home: claudeHome(),
   }));
 });
 
