@@ -10,7 +10,7 @@
 //   S5  a dedicated append target
 //   S6  sessions spread over three calendar days
 
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,10 +20,16 @@ rmSync(root, { recursive: true, force: true });
 let uuidSeq = 0;
 const uuid = () => `0000${String(++uuidSeq).padStart(4, '0')}-1111-4222-8333-444455556666`;
 
+// mtime is pinned to the session's last timestamp: the index sorts on it, and S6 buckets by day.
 const write = (relPath, lines) => {
   const full = join(root, relPath);
   mkdirSync(dirname(full), { recursive: true });
   writeFileSync(full, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const stamps = lines.map((l) => l.timestamp).filter(Boolean).sort();
+  if (stamps.length) {
+    const last = new Date(stamps[stamps.length - 1]);
+    utimesSync(full, last, last);
+  }
 };
 
 const usage = (input, output, cacheRead, cacheCreate, thinking) => ({

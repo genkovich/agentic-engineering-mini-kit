@@ -14,6 +14,6 @@ test('health reports the configured Claude home and the registered sources', asy
 
 test('the shell renders and declares a CSP', async () => {
   const html = await srv.text('/');
-  assert.match(html, /<title>agent-ops<\/title>/);
+  assert.match(html, /<title>Sessions · agent-ops<\/title>/);
   assert.match(html, /Content-Security-Policy/);
 });

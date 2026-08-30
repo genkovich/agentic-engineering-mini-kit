@@ -1,25 +1,39 @@
 import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { claudeHome } from './lib/claude/index.js';
+import { claudeHome, listSessions, enrichWithIdentity } from './lib/claude/index.js';
 import { listSources } from './lib/sources.js';
-import { layout, empty } from './views/layout.js';
+import { layout } from './views/layout.js';
+import { sessionsPage } from './views/sessions.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const app = express();
 
 app.use(express.static(join(here, 'public')));
 
+const DEFAULT_LIMIT = 50;
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, sources: listSources(), claudeHome: claudeHome() });
 });
 
+// S1 — the index. Built from directory names, file names and fstat only. No file is opened.
+app.get('/api/sessions', (req, res) => {
+  const all = listSessions();
+  const limit = Number(req.query.limit) || DEFAULT_LIMIT;
+  const page = all.slice(0, limit);
+  // ?titles=0 gives the raw S1 index, which is what the timing comparison in lesson 3 measures.
+  const sessions = req.query.titles === '0' ? page : enrichWithIdentity(page);
+  res.json({ total: all.length, count: sessions.length, sessions });
+});
+
 app.get('/', (req, res) => {
-  res.type('html').send(layout({
-    title: 'agent-ops',
-    body: `<h1>agent-ops</h1>
-<p class="sub">Reading ${claudeHome()}</p>
-${empty('No slice is wired up yet.')}`,
+  const all = listSessions();
+  const limit = Number(req.query.limit) || DEFAULT_LIMIT;
+  res.type('html').send(sessionsPage({
+    sessions: enrichWithIdentity(all.slice(0, limit)),
+    home: claudeHome(),
+    limit: { total: all.length },
   }));
 });
 
