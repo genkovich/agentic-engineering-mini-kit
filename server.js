@@ -5,6 +5,8 @@ import { claudeHome, listSessions, enrichWithIdentity } from './lib/claude/index
 import { listSources } from './lib/sources.js';
 import { layout } from './views/layout.js';
 import { sessionsPage } from './views/sessions.js';
+import { sessionPage } from './views/session.js';
+import { parseSession } from './lib/claude/parse.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const app = express();
@@ -25,6 +27,24 @@ app.get('/api/sessions', (req, res) => {
   // ?titles=0 gives the raw S1 index, which is what the timing comparison in lesson 3 measures.
   const sessions = req.query.titles === '0' ? page : enrichWithIdentity(page);
   res.json({ total: all.length, count: sessions.length, sessions });
+});
+
+function findSession(id) {
+  return listSessions().find((s) => s.sessionId === id) ?? null;
+}
+
+// S3 — the timeline. One file, parsed in full, on demand.
+app.get('/api/sessions/:id', (req, res) => {
+  const session = findSession(req.params.id);
+  if (!session) return res.status(404).json({ error: 'session not found' });
+  res.json({ session: enrichWithIdentity([session])[0], timeline: parseSession(session.file) });
+});
+
+app.get('/sessions/:id', (req, res) => {
+  const session = findSession(req.params.id);
+  if (!session) return res.status(404).type('html').send(layout({ title: 'not found', body: '<h1>404</h1>' }));
+  const timeline = parseSession(session.file);
+  res.type('html').send(sessionPage({ session: enrichWithIdentity([session])[0], timeline }));
 });
 
 app.get('/', (req, res) => {
