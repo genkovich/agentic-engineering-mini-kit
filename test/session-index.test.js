@@ -39,6 +39,52 @@ test('T2: each raw session record carries sessionId, project dir name, size and 
   assert.equal(record.mtimeMs, st.mtimeMs);
 });
 
+test('T3: a project-dir symlink resolving outside CLAUDE_HOME contributes zero sessions', (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'session-index-t3-home-'));
+  const outside = mkdtempSync(join(tmpdir(), 'session-index-t3-outside-'));
+  try {
+    const projectsPath = join(home, 'projects');
+    mkdirSync(projectsPath, { recursive: true });
+    const outsideProject = join(outside, '-outside-proj');
+    mkdirSync(outsideProject, { recursive: true });
+    writeFileSync(join(outsideProject, '22222222-2222-4222-8222-222222222222.jsonl'), '{}\n');
+    try {
+      symlinkSync(outsideProject, join(projectsPath, '-linked-outside'));
+    } catch {
+      t.skip('symlink creation unavailable on this platform');
+      return;
+    }
+    const raw = scanRawSessions(projectsPath);
+    assert.equal(raw.length, 0);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('T3: two symlinks resolving to the same inside directory contribute its sessions exactly once, in finite time', (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'session-index-t3-dup-'));
+  try {
+    const projectsPath = join(home, 'projects');
+    const realProject = join(home, 'real-proj');
+    mkdirSync(projectsPath, { recursive: true });
+    mkdirSync(realProject, { recursive: true });
+    writeFileSync(join(realProject, '33333333-3333-4333-8333-333333333333.jsonl'), '{}\n');
+    try {
+      symlinkSync(realProject, join(projectsPath, '-link-a'));
+      symlinkSync(realProject, join(projectsPath, '-link-b'));
+    } catch {
+      t.skip('symlink creation unavailable on this platform');
+      return;
+    }
+    const raw = scanRawSessions(projectsPath);
+    assert.equal(raw.length, 1);
+    assert.equal(raw[0].sessionId, '33333333-3333-4333-8333-333333333333');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('T2: a session-level symlink is not considered a session', () => {
   const tmp = mkdtempSync(join(tmpdir(), 'session-index-t2-'));
   try {
