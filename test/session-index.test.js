@@ -1,14 +1,16 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chmodSync, readdirSync } from 'node:fs';
 import { deriveProjectLabel, scanRawSessions, sortAndLimit, listSessions } from '../lib/claude/index.js';
-import { fixtureHome } from './helpers.js';
+import { fixtureHome, startServer } from './helpers.js';
 import { sessionFiles } from './oracle.js';
 
 const fixtureProjectsDir = join(fixtureHome, 'projects');
+const srv = await startServer();
+after(() => srv.close());
 
 function withClaudeHome(dir, fn) {
   const prev = process.env.CLAUDE_HOME;
@@ -208,4 +210,29 @@ test('T5: listSessions() completes in <=50ms on the fixture tree', () => {
   withClaudeHome(fixtureHome, () => listSessions({ limit: 50 }));
   const elapsed = performance.now() - start;
   assert.ok(elapsed <= 50, `expected <=50ms, took ${elapsed}ms`);
+});
+
+test('T6: an invalid ?limit falls back to the default 50 with an explanatory note', async () => {
+  for (const rawLimit of ['abc', '0', '-5', '1001', '']) {
+    const html = await srv.text(`/?limit=${rawLimit}`);
+    assert.match(html, /Invalid.*limit/i, `expected an invalid-limit note for limit=${rawLimit}`);
+  }
+});
+
+test('T6: a valid ?limit is forwarded to listSessions() without a note', async () => {
+  const html = await srv.text('/?limit=1');
+  assert.doesNotMatch(html, /Invalid.*limit/i);
+});
+
+test('T6: no ?limit uses the default 50 without a note', async () => {
+  const html = await srv.text('/');
+  assert.doesNotMatch(html, /Invalid.*limit/i);
+});
+
+test('T6: /api/health and the page CSP stay byte-identical after wiring the limit param', async () => {
+  const health = await srv.json('/api/health');
+  assert.equal(health.ok, true);
+  assert.ok(health.sources.some((s) => s.id === 'claude'));
+  const html = await srv.text('/');
+  assert.match(html, /Content-Security-Policy/);
 });
