@@ -3,11 +3,22 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deriveProjectLabel, scanRawSessions, sortAndLimit } from '../lib/claude/index.js';
+import { chmodSync, readdirSync } from 'node:fs';
+import { deriveProjectLabel, scanRawSessions, sortAndLimit, listSessions } from '../lib/claude/index.js';
 import { fixtureHome } from './helpers.js';
 import { sessionFiles } from './oracle.js';
 
 const fixtureProjectsDir = join(fixtureHome, 'projects');
+
+function withClaudeHome(dir, fn) {
+  const prev = process.env.CLAUDE_HOME;
+  process.env.CLAUDE_HOME = dir;
+  try {
+    return fn();
+  } finally {
+    process.env.CLAUDE_HOME = prev;
+  }
+}
 
 test('T1: an encoded project directory name decodes to a readable path, marked as derived', () => {
   const result = deriveProjectLabel('-Users-demo-sources-checkout-api');
@@ -134,4 +145,67 @@ test('T4: a set within the limit is not marked truncated', () => {
   assert.equal(sessions.length, 1);
   assert.equal(totalFound, 1);
   assert.equal(truncated, false);
+});
+
+test('T5: an unreadable projects dir yields an empty list, a count, and never throws', (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'session-index-t5-projdir-'));
+  try {
+    const projectsPath = join(home, 'projects');
+    mkdirSync(projectsPath, { recursive: true });
+    chmodSync(projectsPath, 0o000);
+    let probeFailed = false;
+    try { readdirSync(projectsPath); } catch { probeFailed = true; }
+    if (!probeFailed) {
+      chmodSync(projectsPath, 0o755);
+      t.skip('chmod has no effect on this platform/user (likely running as root)');
+      return;
+    }
+    const result = withClaudeHome(home, () => listSessions({ limit: 50 }));
+    assert.deepEqual(result.sessions, []);
+    assert.equal(result.unreadableCount, 1);
+  } finally {
+    try { chmodSync(join(home, 'projects'), 0o755); } catch { /* already gone or fine */ }
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('T5: one unreadable project subdir does not block sessions from readable siblings', (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'session-index-t5-subdir-'));
+  try {
+    const projectsPath = join(home, 'projects');
+    const goodProject = join(projectsPath, '-good-proj');
+    const badProject = join(projectsPath, '-bad-proj');
+    mkdirSync(goodProject, { recursive: true });
+    mkdirSync(badProject, { recursive: true });
+    writeFileSync(join(goodProject, '44444444-4444-4444-8444-444444444444.jsonl'), '{}\n');
+    chmodSync(badProject, 0o000);
+    let probeFailed = false;
+    try { readdirSync(badProject); } catch { probeFailed = true; }
+    if (!probeFailed) {
+      chmodSync(badProject, 0o755);
+      t.skip('chmod has no effect on this platform/user (likely running as root)');
+      return;
+    }
+    const result = withClaudeHome(home, () => listSessions({ limit: 50 }));
+    assert.equal(result.sessions.length, 1);
+    assert.equal(result.sessions[0].sessionId, '44444444-4444-4444-8444-444444444444');
+    assert.equal(result.unreadableCount, 1);
+  } finally {
+    try { chmodSync(join(home, 'projects', '-bad-proj'), 0o755); } catch { /* already gone or fine */ }
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('T5: listSessions() never writes to the home it reads', () => {
+  const before = readdirSync(fixtureHome, { recursive: true }).sort();
+  withClaudeHome(fixtureHome, () => listSessions({ limit: 50 }));
+  const after = readdirSync(fixtureHome, { recursive: true }).sort();
+  assert.deepEqual(after, before);
+});
+
+test('T5: listSessions() completes in <=50ms on the fixture tree', () => {
+  const start = performance.now();
+  withClaudeHome(fixtureHome, () => listSessions({ limit: 50 }));
+  const elapsed = performance.now() - start;
+  assert.ok(elapsed <= 50, `expected <=50ms, took ${elapsed}ms`);
 });
