@@ -1,0 +1,75 @@
+{
+  "slug": "session-index",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Derive a project label from the encoded project directory name",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-02", "AC-02b"],
+      "dod": "unit test proves an encoded path decodes to a readable path with the derived marker, and a non-path-like name falls back to itself with the same marker",
+      "files_hint": ["lib/claude/index.js", "test/session-index.test.js"],
+      "file": "docs/features/session-index/tasks/t1-derive-project-label.md"
+    },
+    {
+      "id": "T2",
+      "title": "Scan projects/ two levels deep and collect raw session records",
+      "layer": "infra",
+      "deps": [],
+      "acs": ["AC-01", "AC-10", "AC-13"],
+      "dod": "unit test on fixtures/claude-home proves the raw scan returns exactly the 6 session files (not the nested subagent transcript, not a session-level symlink) each with sessionId, project dir name, size and mtime read from disk",
+      "files_hint": ["lib/claude/index.js", "test/session-index.test.js"],
+      "file": "docs/features/session-index/tasks/t2-scan-session-files.md"
+    },
+    {
+      "id": "T3",
+      "title": "Deduplicate project-dir symlinks by realpath and reject external targets",
+      "layer": "infra",
+      "deps": ["T2"],
+      "acs": ["AC-09", "AC-09b"],
+      "dod": "test on a disposable temp tree proves a symlink resolving outside CLAUDE_HOME contributes zero sessions and zero trace, and two symlinks resolving to the same inside directory contribute its sessions exactly once, in finite time",
+      "files_hint": ["lib/claude/index.js", "test/session-index.test.js"],
+      "file": "docs/features/session-index/tasks/t3-dedupe-symlinks.md"
+    },
+    {
+      "id": "T4",
+      "title": "Sort sessions by mtime desc with filename tie-break and truncate to limit",
+      "layer": "infra",
+      "deps": ["T3"],
+      "acs": ["AC-03", "AC-03b", "AC-04"],
+      "dod": "unit test proves sessions with distinct mtimes sort newest-first, two equal mtimes order by session filename, and a set above the limit is truncated with totalFound and truncated reflecting the pre-truncation count",
+      "files_hint": ["lib/claude/index.js", "test/session-index.test.js"],
+      "file": "docs/features/session-index/tasks/t4-sort-and-limit.md"
+    },
+    {
+      "id": "T5",
+      "title": "Make the scan best-effort: skip unreadable entries, count them, never throw",
+      "layer": "infra",
+      "deps": ["T4"],
+      "acs": ["AC-06", "AC-07", "AC-08", "AC-13"],
+      "dod": "test with an unreadable projects dir, an unreadable project subdir and an unreadable session file each proves listSessions() returns 200-equivalent data (sessions from what did read, unreadableCount for what did not) instead of throwing; a before/after directory snapshot of CLAUDE_HOME proves zero writes; a timed run on fixtures/claude-home proves the pure function completes in <=50ms",
+      "files_hint": ["lib/claude/index.js", "test/session-index.test.js"],
+      "file": "docs/features/session-index/tasks/t5-best-effort-readability.md"
+    },
+    {
+      "id": "T6",
+      "title": "Wire GET / to read, validate and pass through the ?limit query param",
+      "layer": "ports",
+      "deps": ["T5"],
+      "acs": ["AC-05", "AC-12"],
+      "dod": "test proves an invalid ?limit (non-numeric, zero, negative, above 1000) falls back to the default 50 with an explanatory note instead of failing the request, a valid ?limit is forwarded to listSessions(), and /api/health plus the page CSP are byte-identical to before this feature",
+      "files_hint": ["server.js", "test/session-index.test.js"],
+      "file": "docs/features/session-index/tasks/t6-wire-limit-query-param.md"
+    },
+    {
+      "id": "T7",
+      "title": "Render the session index table, empty state and notes",
+      "layer": "ui",
+      "deps": ["T1", "T6"],
+      "acs": ["AC-01", "AC-02", "AC-02b", "AC-03", "AC-03b", "AC-04", "AC-05", "AC-06", "AC-07", "AC-08", "AC-11", "AC-13"],
+      "dod": "integration test through startServer() proves the rendered page lists every fixture session with project label, id, human-readable size (exact bytes in title), absolute mtime, shows empty() when there are no sessions, shows the invalid-limit / truncated / unreadable notes when present, and never contains a fragment of conversation text",
+      "files_hint": ["views/session-index.js", "server.js", "test/session-index.test.js"],
+      "file": "docs/features/session-index/tasks/t7-render-session-index-view.md"
+    }
+  ]
+}

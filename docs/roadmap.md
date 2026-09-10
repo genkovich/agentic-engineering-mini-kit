@@ -1,6 +1,6 @@
 ---
 status: living
-updated_at: "2026-09-08"
+updated_at: "2026-09-10"
 ---
 
 # Roadmap: agent-ops-dashboard
@@ -18,7 +18,7 @@ updated_at: "2026-09-08"
 
 | # | Step | Source | Size | Status |
 |---|---|---|:---:|---|
-| 1 | `session-index`: перелік сесій усіх проєктів із проєктом, розміром і часом зміни, від свіжих | `README.md` §«Яку зміну починаємо» | S | idea |
+| 1 | [`session-index`](features/session-index/): перелік сесій усіх проєктів із проєктом, розміром і часом зміни, від свіжих | `README.md` §«Яку зміну починаємо» | S | spec'd |
 | 2 | Перегляд однієї сесії → див. [Not yet specified](#not-yet-specified) | `docs/roadmap.md` §Destination | fog | idea |
 | 3 | Вартість сесії в токенах → див. [Not yet specified](#not-yet-specified) | `docs/roadmap.md` §Destination | fog | idea |
 | 4 | Друге джерело за контрактом registerSource → див. [Not yet specified](#not-yet-specified) | `docs/roadmap.md` §Destination | fog | idea |
@@ -39,14 +39,15 @@ updated_at: "2026-09-08"
 
 | # | Question | Type | Owner | Blocks |
 |---|---|:---:|:---:|:---:|
-| D1 | Скільки сесій показуємо в переліку і що цей ліміт робить із порядком, коли їх більше | grilling | human | 1 |
-| D2 | Що бачить розробник, коли теки проєктів немає або вона порожня | grilling | human | 1 |
+| — | Відкритих рішень немає: D1 і D2 закриті специфікацією кроку 1 | — | — | — |
 
 ## Decisions so far
 
 - Сесія це один файл на одному рівні; вкладені транскрипти сесіями не є → [`CONTEXT.md`](../CONTEXT.md)
 - Проєкт показуємо як відновлений шлях із позначкою «похідний» → [`CONTEXT.md`](../CONTEXT.md)
 - Перелік будуємо з метаданих файлів, без вмісту JSONL → [`AGENTS.md`](../AGENTS.md), розділ «Межі»
+- D1: перелік сортуємо за часом зміни, потім обрізаємо; типова довжина 50 рядків, стеля 1000, неприпустиме значення пояснюємо й показуємо типовий перелік → [`spec.md`](features/session-index/spec.md) §5 AC-04, AC-05
+- D2: немає теки проєктів або вона порожня → порожній стан; нечитабельний проєкт пропускаємо і показуємо примітку про кількість непрочитаних → [`spec.md`](features/session-index/spec.md) §5 AC-06…AC-08
 
 ## Dependency graph
 
