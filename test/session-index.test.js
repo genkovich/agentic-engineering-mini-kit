@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deriveProjectLabel, scanRawSessions } from '../lib/claude/index.js';
+import { deriveProjectLabel, scanRawSessions, sortAndLimit } from '../lib/claude/index.js';
 import { fixtureHome } from './helpers.js';
 import { sessionFiles } from './oracle.js';
 
@@ -98,4 +98,40 @@ test('T2: a session-level symlink is not considered a session', () => {
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test('T4: sessions with distinct mtimes sort newest-first', () => {
+  const records = [
+    { sessionId: 'a', mtimeMs: 100 },
+    { sessionId: 'b', mtimeMs: 300 },
+    { sessionId: 'c', mtimeMs: 200 },
+  ];
+  const { sessions } = sortAndLimit(records, { limit: 50 });
+  assert.deepEqual(sessions.map((s) => s.sessionId), ['b', 'c', 'a']);
+});
+
+test('T4: two sessions with equal mtime order by session filename as a tie-break', () => {
+  const records = [
+    { sessionId: 'zzzz', mtimeMs: 100 },
+    { sessionId: 'aaaa', mtimeMs: 100 },
+  ];
+  const { sessions } = sortAndLimit(records, { limit: 50 });
+  assert.deepEqual(sessions.map((s) => s.sessionId), ['aaaa', 'zzzz']);
+});
+
+test('T4: a set above the limit is truncated, totalFound and truncated reflect the pre-truncation count', () => {
+  const records = Array.from({ length: 55 }, (_, i) => ({ sessionId: String(i).padStart(3, '0'), mtimeMs: i }));
+  const { sessions, totalFound, truncated } = sortAndLimit(records, { limit: 50 });
+  assert.equal(sessions.length, 50);
+  assert.equal(totalFound, 55);
+  assert.equal(truncated, true);
+  assert.equal(sessions[0].sessionId, '054');
+});
+
+test('T4: a set within the limit is not marked truncated', () => {
+  const records = [{ sessionId: 'a', mtimeMs: 1 }];
+  const { sessions, totalFound, truncated } = sortAndLimit(records, { limit: 50 });
+  assert.equal(sessions.length, 1);
+  assert.equal(totalFound, 1);
+  assert.equal(truncated, false);
 });
