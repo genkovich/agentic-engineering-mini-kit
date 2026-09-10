@@ -236,3 +236,49 @@ test('T6: /api/health and the page CSP stay byte-identical after wiring the limi
   const html = await srv.text('/');
   assert.match(html, /Content-Security-Policy/);
 });
+
+test('T7: the rendered page lists every fixture session with project label, id, size and mtime', async () => {
+  const html = await srv.text('/');
+  const expectedSessionIds = sessionFiles(fixtureProjectsDir, { exactDepth: 2 })
+    .map((p) => p.split('/').pop().replace(/\.jsonl$/, ''));
+  assert.equal(expectedSessionIds.length, 6);
+  for (const sessionId of expectedSessionIds) {
+    assert.ok(html.includes(sessionId), `expected the page to list session ${sessionId}`);
+  }
+  assert.match(html, /\/Users\/demo\/sources\/checkout\/api/, 'expected a decoded project label');
+  const st = statSync(join(fixtureProjectsDir, '-Users-demo-sources-checkout-api', 'aaaaaaaa-1111-4111-8111-111111111111.jsonl'));
+  assert.match(html, new RegExp(`title="${st.size} bytes"`), 'expected the exact byte size in a title attribute');
+});
+
+test('T7: an empty CLAUDE_HOME renders the empty state', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'session-index-t7-empty-'));
+  const prev = process.env.CLAUDE_HOME;
+  process.env.CLAUDE_HOME = home;
+  try {
+    mkdirSync(join(home, 'projects'), { recursive: true });
+    const local = await startServer();
+    const html = await local.text('/');
+    await local.close();
+    assert.match(html, /class="empty"/);
+  } finally {
+    process.env.CLAUDE_HOME = prev;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('T7: the truncated note appears when there are more sessions than the limit', async () => {
+  const html = await srv.text('/?limit=1');
+  assert.match(html, /1 of 6/);
+});
+
+test('T7: the invalid-limit note appears in the rendered page', async () => {
+  const html = await srv.text('/?limit=abc');
+  assert.match(html, /class="note"/);
+  assert.match(html, /Invalid.*limit/i);
+});
+
+test('T7: the rendered page never contains a fragment of conversation text', async () => {
+  const html = await srv.text('/');
+  assert.doesNotMatch(html, /Дивлюся тест/);
+  assert.doesNotMatch(html, /unique constraint/);
+});

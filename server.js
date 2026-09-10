@@ -3,7 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claudeHome, listSessions } from './lib/claude/index.js';
 import { listSources } from './lib/sources.js';
-import { layout, empty, esc } from './views/layout.js';
+import { layout } from './views/layout.js';
+import { renderSessionIndex } from './views/session-index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const app = express();
@@ -38,8 +39,12 @@ app.get('/', (req, res) => {
     title: 'agent-ops',
     body: `<h1>agent-ops</h1>
 <p class="sub">Reading ${claudeHome()}</p>
-${invalidLimitNote ? `<p class="note">${esc(invalidLimitNote)}</p>` : ''}
-${empty(`Sessions found: ${result.sessions.length} (of ${result.totalFound})`)}`,
+${renderSessionIndex(result.sessions, {
+      invalidLimitNote,
+      truncated: result.truncated,
+      totalFound: result.totalFound,
+      unreadableCount: result.unreadableCount,
+    })}`,
   }));
 });
 

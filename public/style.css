@@ -28,6 +28,7 @@ h1 { font-size: 18px; margin: 0 0 4px; }
 h2 { font-size: 14px; margin: 28px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .sub { color: var(--muted); margin: 0 0 20px; }
 .empty { color: var(--muted); padding: 40px 0; }
+.note { color: var(--warm); margin: 0 0 10px; }
 
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
