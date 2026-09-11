@@ -166,17 +166,21 @@ app.get('/projects/:dir', (req, res) => {
   }
   const tag = parseTag(req.query.tag);
   const starred = parseFlag(req.query.starred);
-  const result = listSessions({ limit, q, project: dir, days, sort, entries: readStore(), tag, starred });
+  const { source, invalidSourceNote } = parseSource(req.query.source, sourceIds());
+  const result = listSessions({ limit, q, project: dir, days, sort, entries: readStore(), tag, starred, source });
+  // `result.projects` is collected over every source, before the `source` scope, so a project
+  // whose sessions all live in the other source still resolves: the page renders its own row
+  // with an empty scoped list, which is a filter showing nothing, not a missing project.
   const project = result.projects.find((p) => p.projectDirName === dir);
   if (!project) {
     notFoundPage(res, 'Project not found', 'No project directory with that name is in the index.');
     return;
   }
-  const state = { base: `/projects/${dir}`, q, project: dir, limit, days, sort, tag, starred };
+  const state = { base: `/projects/${dir}`, q, project: dir, limit, days, sort, tag, starred, source };
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
-    sources: pageShell(),
+    sources: pageShell(result.sources),
     head: CHART_SCRIPT,
     body: renderProject({
       project,
@@ -185,7 +189,7 @@ app.get('/projects/:dir', (req, res) => {
       state,
       colors: result.colors,
       asOf: PRICING.asOf,
-      notes: renderNotes({ invalidLimitNote, invalidDaysNote, invalidSortNote, unreadableCount: result.unreadableCount }),
+      notes: renderNotes({ invalidLimitNote, invalidDaysNote, invalidSortNote, invalidSourceNote, unreadableCount: result.unreadableCount }),
       meta: {
         projects: result.projects,
         sources: result.sources,
