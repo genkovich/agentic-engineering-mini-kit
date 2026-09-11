@@ -30,6 +30,17 @@ export function columnChart(buckets, { key, label, series, tip, fallback, format
   const plotW = width - padLeft - padRight;
   const plotH = height - padBottom - padTop;
   const gap = 2;
+  // Zero buckets is reachable (a session with no turns yet), and the axis maths divides by the
+  // count, so answer with the bare frame: same wrapper and aria label, one baseline, no columns.
+  if (buckets.length === 0) {
+    return `<div class="chart-host" data-chart="${key}">
+<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(label)}">
+<line x1="${padLeft}" y1="${padTop + plotH}" x2="${width - padRight}" y2="${padTop + plotH}" class="axis"></line>
+<text x="${padLeft - 6}" y="${padTop + plotH + 4}" text-anchor="end">0</text>
+</svg>
+<p class="dim">No activity to chart yet.</p>
+</div>`;
+  }
   const slot = plotW / buckets.length;
   const barW = Math.min(24, slot - 6);
   const totals = buckets.map((b) => series(b).reduce((sum, seg) => sum + seg.value, 0));

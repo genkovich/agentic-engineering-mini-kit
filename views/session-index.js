@@ -209,12 +209,15 @@ ${buildProjects(dash, state, colors)}`;
 /* ---- recent sessions -------------------------------------------------------------------- */
 
 function buildToolbar(state, projects, meta) {
+  // A project page is already scoped and href() refuses to write `project` there, so the
+  // select would let the form produce a URL the link layer never would. Only "/" gets it.
+  const scoped = (state.base ?? '/') !== '/';
   const options = projects.map((p) => `<option value="${esc(p.projectDirName)}"${p.projectDirName === state.project ? ' selected' : ''}>${esc(p.name)} (${p.count})</option>`).join('');
+  const projectSelect = scoped ? '' : `\n<select name="project" aria-label="Project"><option value="">All projects</option>${options}</select>`;
   const hiddenLimit = (state.limit !== DEFAULT_LIMIT ? `<input type="hidden" name="limit" value="${state.limit}">` : '')
     + (state.days !== DEFAULT_DAYS ? `<input type="hidden" name="days" value="${state.days}">` : '');
   const search = `<form class="search" method="get" action="${esc(state.base ?? '/')}" role="search">
-${hiddenLimit}<input type="search" name="q" value="${esc(state.q)}" placeholder="Search name, project or id" aria-label="Search sessions">
-<select name="project" aria-label="Project"><option value="">All projects</option>${options}</select>
+${hiddenLimit}<input type="search" name="q" value="${esc(state.q)}" placeholder="Search name, project or id" aria-label="Search sessions">${projectSelect}
 <button type="submit">${icon('search')}Apply</button>${state.q || state.project ? `<a class="clear" href="${esc(href(state, { q: '', project: '' }))}">Clear</a>` : ''}
 </form>`;
   const choices = LIMIT_CHOICES.includes(state.limit) ? LIMIT_CHOICES : [...LIMIT_CHOICES, state.limit].sort((a, b) => a - b);
