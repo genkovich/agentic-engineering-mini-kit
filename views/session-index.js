@@ -17,16 +17,19 @@ const DEFAULT_SORT = 'time';
 // Every control is a link: the page state lives in the query string, so it can be copied.
 // Only non-default values are written, which keeps the plain "/" as the canonical home.
 // `state.base` is the page the links point back at: "/" for the dashboard, "/projects/<dir>"
-// for a project page, which is already scoped and therefore never writes `project`.
+// for a project page, which is already scoped and therefore never writes `project`. Any other
+// base (the "/api/sessions" link in the sessions heading) is an unscoped endpoint and does.
 export function href(state, overrides = {}) {
   const next = { ...state, ...overrides };
   const base = next.base ?? '/';
   const params = new URLSearchParams();
   if (next.q) params.set('q', next.q);
-  if (base === '/' && next.project) params.set('project', next.project);
+  if (!base.startsWith('/projects/') && next.project) params.set('project', next.project);
   if (next.days !== DEFAULT_DAYS) params.set('days', String(next.days));
   if (next.limit !== DEFAULT_LIMIT) params.set('limit', String(next.limit));
   if (next.sort && next.sort !== DEFAULT_SORT) params.set('sort', String(next.sort));
+  if (next.tag) params.set('tag', String(next.tag));
+  if (next.starred) params.set('starred', '1');
   const query = params.toString();
   return query ? `${base}?${query}` : base;
 }
@@ -236,10 +239,12 @@ function buildToolbar(state, projects, meta) {
   const projectSelect = scoped ? '' : `\n<select name="project" aria-label="Project"><option value="">All projects</option>${options}</select>`;
   const hiddenLimit = (state.limit !== DEFAULT_LIMIT ? `<input type="hidden" name="limit" value="${state.limit}">` : '')
     + (state.days !== DEFAULT_DAYS ? `<input type="hidden" name="days" value="${state.days}">` : '')
-    + (state.sort && state.sort !== DEFAULT_SORT ? `<input type="hidden" name="sort" value="${esc(state.sort)}">` : '');
+    + (state.sort && state.sort !== DEFAULT_SORT ? `<input type="hidden" name="sort" value="${esc(state.sort)}">` : '')
+    + (state.tag ? `<input type="hidden" name="tag" value="${esc(state.tag)}">` : '')
+    + (state.starred ? '<input type="hidden" name="starred" value="1">' : '');
   const search = `<form class="search" method="get" action="${esc(state.base ?? '/')}" role="search">
 ${hiddenLimit}<input type="search" name="q" value="${esc(state.q)}" placeholder="Search name, project or id" aria-label="Search sessions">${projectSelect}
-<button type="submit">${icon('search')}Apply</button>${state.q || state.project ? `<a class="clear" href="${esc(href(state, { q: '', project: '' }))}">Clear</a>` : ''}
+<button type="submit">${icon('search')}Apply</button>${state.q || state.project || state.tag || state.starred ? `<a class="clear" href="${esc(href(state, { q: '', project: '', tag: '', starred: false }))}">Clear</a>` : ''}
 </form>`;
   const choices = LIMIT_CHOICES.includes(state.limit) ? LIMIT_CHOICES : [...LIMIT_CHOICES, state.limit].sort((a, b) => a - b);
   const items = choices.map((n) => ({ label: String(n), to: href(state, { limit: n }), on: n === state.limit }));
@@ -248,22 +253,42 @@ ${hiddenLimit}<input type="search" name="q" value="${esc(state.q)}" placeholder=
     items.push({ label: `All ${total}`, to: href(state, { limit: total }), on: false });
   }
   const limit = segmented(items);
+  // One toggle, not a segmented pair: "Starred" is on or off, and the link always says which
+  // way it is about to go. aria-current marks it the way the nav marks the current page.
+  const starToggle = `<a class="star-toggle" href="${esc(href(state, { starred: !state.starred }))}"${state.starred ? ' aria-current="true"' : ''}>${icon('star')}Starred</a>`;
   return `<div class="toolbar">
 ${search}
+<span class="control">${starToggle}</span>
 <span class="control"><span class="label">Show newest</span>${limit}</span>
 </div>`;
 }
 
+// A star stands before the name of a session the developer marked, and its tags follow the
+// name as chips that filter the list. Both come from the dashboard's own store, never from the
+// journal, so an untouched home renders exactly what it rendered before.
+function starMark(session) {
+  return session.starred ? `<span class="starred" title="Starred">${icon('star', 'Starred')}</span>` : '';
+}
+
+function tagChips(session, state) {
+  if (!session.tags || session.tags.length === 0) return '';
+  return `<span class="tags">${session.tags
+    .map((tag) => `<a class="chip chip-tag" href="${esc(href(state, { tag }))}">${esc(tag)}</a>`)
+    .join('')}</span>`;
+}
+
 function nameCell(session, state) {
-  const renameHref = `/sessions/${esc(session.sessionId)}/rename?back=${encodeURIComponent(href(state))}`;
-  const rename = `<a class="rename-link" href="${renameHref}" title="Give this session your own name">${icon('pencil')}Rename</a>`;
+  const editHref = `/sessions/${esc(session.sessionId)}/edit?back=${encodeURIComponent(href(state))}`;
+  const edit = `<a class="rename-link" href="${editHref}" title="Name, tag or annotate this session">${icon('pencil')}Edit</a>`;
   const to = `/sessions/${esc(session.sessionId)}`;
+  const star = starMark(session);
+  const chips = tagChips(session, state);
   if (session.label !== null) {
     const journal = session.title ? `Journal title: ${session.title}` : 'No journal title';
-    return `<a class="title named" href="${to}" title="${esc(session.sessionId)} · ${esc(journal)}">${esc(session.label)}</a>${rename}`;
+    return `${star}<a class="title named" href="${to}" title="${esc(session.sessionId)} · ${esc(journal)}">${esc(session.label)}</a>${edit}${chips}`;
   }
-  if (session.title !== null) return `<a class="title" href="${to}" title="${esc(session.sessionId)}">${esc(session.title)}</a>${rename}`;
-  return `<a class="untitled" href="${to}" title="${esc(session.sessionId)} · The journal carries no generated title for this session">Untitled session</a>${rename}`;
+  if (session.title !== null) return `${star}<a class="title" href="${to}" title="${esc(session.sessionId)}">${esc(session.title)}</a>${edit}${chips}`;
+  return `${star}<a class="untitled" href="${to}" title="${esc(session.sessionId)} · The journal carries no generated title for this session">Untitled session</a>${edit}${chips}`;
 }
 
 // The estimate is per session, from the same table the rest of the page uses. A session with no
@@ -300,12 +325,15 @@ ${costCell(session, asOf)}
 
 function buildSessionsHeading(sessions, meta, state) {
   const total = meta.totalFound ?? sessions.length;
-  const filtered = state.q || state.project;
+  const filtered = state.q || state.project || state.tag || state.starred;
   let text;
   if (meta.truncated) text = `${sessions.length} newest of ${total}${filtered ? ' matching' : ''}`;
   else if (filtered) text = `${total} matching of ${meta.totalSessions ?? total}`;
   else text = `${total}`;
-  return `<h2>${icon('sessions')}Recent sessions <span class="dim">${esc(text)}</span></h2>`;
+  // The same list the page shows, as JSON, at the query the page is already at: the machine
+  // door sits next to the human one rather than in separate documentation.
+  const api = `<span class="api-links"><a href="${esc(href({ ...state, base: '/api/sessions' }))}">JSON</a></span>`;
+  return `<h2>${icon('sessions')}Recent sessions <span class="dim">${esc(text)}</span>${api}</h2>`;
 }
 
 // The sessions section on its own: heading, toolbar and either the table or the filtered
@@ -323,12 +351,15 @@ export function renderSessionsList(sessions, state, meta = {}) {
   const colors = meta.colors ?? {};
   const asOf = meta.asOf ?? '';
   const projects = meta.projects ?? [];
-  const filtered = state.q || state.project;
+  const filtered = state.q || state.project || state.tag || state.starred;
   let list;
   if (sessions.length === 0 && filtered) {
-    const what = state.q ? `No sessions match “${state.q}”` : 'No sessions in this project';
+    let what = 'No sessions in this project';
+    if (state.q) what = `No sessions match “${state.q}”`;
+    else if (state.tag) what = `No sessions tagged “${state.tag}”`;
+    else if (state.starred && !state.project) what = 'No starred sessions yet';
     list = `${empty(`${what}. Clear the filter to see every session.`)}
-<p class="sub"><a href="${esc(href(state, { q: '', project: '' }))}">Show all sessions</a></p>`;
+<p class="sub"><a href="${esc(href(state, { q: '', project: '', tag: '', starred: false }))}">Show all sessions</a></p>`;
   } else {
     list = `<div class="table-wrap">
 <table>
@@ -354,6 +385,8 @@ export function renderSessionIndex(sessions, meta = {}) {
     limit: meta.limit ?? DEFAULT_LIMIT,
     days: meta.days ?? DEFAULT_DAYS,
     sort: meta.sort ?? DEFAULT_SORT,
+    tag: meta.tag ?? '',
+    starred: Boolean(meta.starred),
   };
   const colors = meta.colors ?? {};
   const notesHtml = renderNotes({ ...meta, shown: sessions.length });
@@ -365,9 +398,18 @@ export function renderSessionIndex(sessions, meta = {}) {
     return `${notesHtml}\n${empty(`No sessions found.${where}`)}`;
   }
 
-  const scope = state.project
-    ? `<p class="sub scope">Showing <strong>${esc(projects.find((p) => p.projectDirName === state.project)?.name ?? state.project)}</strong> only. <a href="${esc(href(state, { project: '' }))}">All projects</a></p>`
-    : '';
+  const scopes = [];
+  if (state.project) {
+    const name = projects.find((p) => p.projectDirName === state.project)?.name ?? state.project;
+    scopes.push(`Showing <strong>${esc(name)}</strong> only. <a href="${esc(href(state, { project: '' }))}">All projects</a>`);
+  }
+  if (state.tag) {
+    scopes.push(`Tagged <strong>${esc(state.tag)}</strong>. <a href="${esc(href(state, { tag: '' }))}">Clear tag</a>`);
+  }
+  if (state.starred) {
+    scopes.push(`Starred only. <a href="${esc(href(state, { starred: false }))}">Show all</a>`);
+  }
+  const scope = scopes.length ? `<p class="sub scope">${scopes.join(' ')}</p>` : '';
   return `${scope}
 ${renderDashboardPanels(dash, state, colors, notesHtml, meta.asOf ?? '')}
 ${renderSessionsList(sessions, state, meta)}`;

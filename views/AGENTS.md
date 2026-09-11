@@ -31,7 +31,7 @@
 міні-графік `.weekday` по днях тижня. Агрегати приходять готовими з `lib/analytics.js`; сам файл диску не торкається.
 Кожна цифра вартості підписана «≈» і як оцінка, дата таблиці цін названа один раз у шапці.
 
-`views/rename.js` — форма власної назви сесії. Експортує `renderRename({ session, label, back })`: одна `<form method="post">` з полем `label`, кнопкою очищення і прихованим `back` для повернення. Єдина сторінка, за якою стоїть запис, і пише він у `AGENT_OPS_HOME` через `lib/store.js`, не в теку агента.
+`views/edit-session.js` — форма всього, що дашборд знає про сесію понад журнал. Експортує `renderEditSession({ session, entry, back })`: одна `<form class="edit" method="post">` з полями `label`, `tags` (через кому), `note` (`<textarea maxlength="2000">`) і чекбоксом `starred`, кнопками «Save» і «Clear all» та прихованим `back` для повернення. Прихований `form=edit` каже серверу, що всі чотири поля присутні, тому порожнє поле означає «очисти», а не «не надіслано»; POST без цього маркера (аліас `/rename`) патчить лише надіслані поля. Єдина сторінка, за якою стоїть запис, і пише він у `AGENT_OPS_HOME` через `lib/store.js`, не в теку агента.
 
 `views/session.js` — сторінка однієї сесії. Експортує `renderSession({ session, colors, back, asOf })`: шапка
 (назва, мітка «named by you», проєкт-посилання, id, тривалість, ходи, промпти, моделі), команда
@@ -52,9 +52,9 @@ colors, notes, meta })`: шапка проєкту, далі `renderDashboardPan
 
 `views/layout.js` не імпортує нічого, це кінцева точка графа. Він не звертається до `lib/*` і про джерела сесій не знає.
 
-`views/session-index.js` і `views/rename.js` імпортують лише `esc`/`empty`/`icon` з `views/layout.js` плюс `views/format.js` і `views/charts.js`; імпортів з `lib/*` у шарі немає. Усе потрібне приходить у записах сесій (`name`, `label`, `title`, `projectName`, `projectPath`, `projectDerived`, `stats`) і в `meta.dashboard`.
+`views/session-index.js` і `views/edit-session.js` імпортують лише `esc`/`empty`/`icon` з `views/layout.js` плюс `views/format.js` і `views/charts.js`; імпортів з `lib/*` у шарі немає. Усе потрібне приходить у записах сесій (`name`, `label`, `tags`, `note`, `starred`, `title`, `projectName`, `projectPath`, `projectDerived`, `stats`) і в `meta.dashboard`.
 
-Споживач обох це `server.js`. Маршрут `GET /` читає `?limit`, `?q`, `?project` і `?days` (`parseLimit` і `parseDays` у `server.js`: невалідне значення відкочується на дефолт і додає примітку), викликає `listSessions({ limit, q, project, labels })`, передає результат у `renderSessionIndex()` і складає body для `layout()`: `res.type('html').send(layout({...}))`. Нова сторінка йде тим самим шляхом: рядок або функція рендеру → `layout()` → `res.send()`. Маршрути `GET`/`POST /sessions/:id/rename` рендерять `renderRename()` і після запису відповідають `303` на `back`. `GET /sessions/:id` віддає `renderSession()` (id валідує сам `getSession`, невідомий → сторінка 404), `GET /projects/:dir` перевіряє `dir` регуляркою і шукає його серед знайдених проєктів, ніколи не складаючи зі значення шлях; обидві сторінки підключають `/dashboard.js` через `head`, бо рендерять `columnChart`. `GET /overview` читає `?days` (через `parseDaysFrom(raw, PERIOD_CHOICES_OVERVIEW)`) і `?project`, віддає `listSessions().scoped` у `buildOverview()` з `lib/analytics.js` і рендерить `renderOverview()`. Саме `scoped`, а не `sessions`: `sessions` зрізаний по `limit` і відфільтрований по `q`, тому сума по ньому описувала б лише частину сесій. Будь-яка нова сторінкова агрегація бере `scoped`. `?sort` на «/» і на сторінці проєкту розбирає `parseSort` у `server.js`: невідоме значення відкочується на `time` і додає примітку.
+Споживач обох це `server.js`. Маршрут `GET /` читає `?limit`, `?q`, `?project` і `?days` (`parseLimit` і `parseDays` у `server.js`: невалідне значення відкочується на дефолт і додає примітку), викликає `listSessions({ limit, q, project, entries, tag, starred })` (`entries` це `readStore()` з `lib/store.js`), передає результат у `renderSessionIndex()` і складає body для `layout()`: `res.type('html').send(layout({...}))`. Нова сторінка йде тим самим шляхом: рядок або функція рендеру → `layout()` → `res.send()`. Маршрути `GET`/`POST /sessions/:id/edit` рендерять `renderEditSession()` і після запису відповідають `303` на `back`; `GET /sessions/:id/rename` це `302` на `/edit` з тим самим query, а `POST /sessions/:id/rename` лишається робочим і йде тим самим обробником, бо редирект загубив би тіло форми. `GET /sessions/:id` віддає `renderSession()` (id валідує сам `getSession`, невідомий → сторінка 404), `GET /projects/:dir` перевіряє `dir` регуляркою і шукає його серед знайдених проєктів, ніколи не складаючи зі значення шлях; обидві сторінки підключають `/dashboard.js` через `head`, бо рендерять `columnChart`. `GET /overview` читає `?days` (через `parseDaysFrom(raw, PERIOD_CHOICES_OVERVIEW)`) і `?project`, віддає `listSessions().scoped` у `buildOverview()` з `lib/analytics.js` і рендерить `renderOverview()`. Саме `scoped`, а не `sessions`: `sessions` зрізаний по `limit` і відфільтрований по `q`, тому сума по ньому описувала б лише частину сесій. Будь-яка нова сторінкова агрегація бере `scoped`. `?sort` на «/» і на сторінці проєкту розбирає `parseSort` у `server.js`: невідоме значення відкочується на `time` і додає примітку.
 
 ## Стилі
 
@@ -63,3 +63,16 @@ colors, notes, meta })`: шапка проєкту, далі `renderDashboardPan
 ## Конвенції
 
 Як писати сторінки, лежить у `.claude/rules/views.md`. Claude Code підтягує це правило сам на файлах `views/**/*.js`; якщо твій інструмент правил не читає, відкрий його явно.
+
+## Машинний шар
+
+Сторінки мають машинних двійників, і живуть вони поза `views/`: `lib/api-routes.js` реєструє на `app` три JSON-ендпоінти й один CSV, `lib/api.js` віддає `toApiSession(s)`, `lib/csv.js` — `toCsv(columns, rows)`.
+
+- `GET /api/sessions?limit&q&project&days&sort&tag&starred` → `{ sessions, totalFound, truncated, projects, generatedAt }`.
+- `GET /api/sessions/:id` → та сама сесія плюс `timeline`, `analytics`, `extras`; невідомий id це `404` з `{ error: 'not found' }`.
+- `GET /api/overview?days&project` → результат `buildOverview()` над `scoped` плюс `asOf`.
+- `GET /overview.csv?days&project&table=projects|models|tools|sessions` → `text/csv; charset=utf-8` з `Content-Disposition`; `table` поза цим переліком це `400` текстом.
+
+Кожна відповідь це `Cache-Control: no-store`, а тіло збирається з явно названих полів: запис сесії ніколи не розпилюється в відповідь, тому нове поле в API з'являється лише правкою `toApiSession` (`AGENTS.md` §Межі). Розбір параметрів спільний із сторінками й лежить у `lib/query.js`, тому `?days=400` означає одне й те саме на сторінці та в API.
+
+У заголовках панелей стоїть `.api-links`: «CSV» на кожну таблицю огляду й «JSON» один раз, а в заголовку «Recent sessions» — посилання на `/api/sessions` з поточним query.

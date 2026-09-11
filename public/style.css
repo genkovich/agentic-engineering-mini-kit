@@ -315,6 +315,8 @@ h2 { font-size: var(--size-lg); font-weight: 600; margin: var(--s6) 0 var(--s3);
 
 .panel { margin-bottom: var(--s5); }
 .panel h2 { margin: 0 0 var(--s3); }
+/* A heading that carries api links becomes a row, so the links can sit at its far end. */
+h2:has(.api-links) { display: flex; align-items: center; gap: var(--s2); }
 .panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2) var(--s4); }
 .panel-head h2 { margin-bottom: var(--s3); }
 h2 .dim { font-weight: 400; font-size: var(--size-md); margin-left: var(--s2); }
@@ -372,20 +374,25 @@ td.spark-cell { width: 176px; }
 tr:hover .rename-link, tr:focus-within .rename-link, .rename-link:focus-visible { opacity: 1; }
 .named::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 
-/* rename page */
-.rename { max-width: 40rem; padding: var(--s5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
-.rename label { display: block; color: var(--muted); font-size: var(--size-sm); margin-bottom: var(--s1); }
-.rename input[type="text"] {
+/* edit page */
+.edit { max-width: 40rem; padding: var(--s5); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.edit label { display: block; color: var(--muted); font-size: var(--size-sm); margin-bottom: var(--s1); }
+.edit label + input, .edit label + textarea { margin-bottom: var(--s4); }
+.edit input[type="text"], .edit textarea {
   width: 100%; padding: var(--s2) var(--s3);
   border: 1px solid var(--line-strong); border-radius: var(--radius);
   font: var(--size-md)/1.5 var(--font-ui); color: var(--text); background: var(--surface);
 }
-.rename .actions { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s4); }
-.rename button {
+/* A note is prose, so the box is resizable vertically only: a wider box would break the column. */
+.edit textarea { resize: vertical; min-height: 6rem; }
+.edit .field-help { margin: calc(var(--s1) * -1) 0 var(--s4); font-size: var(--size-xs); }
+.edit label.check { display: flex; align-items: center; gap: var(--s2); color: var(--text); }
+.edit .actions { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s4); }
+.edit button {
   padding: var(--s2) var(--s4); border: 1px solid var(--accent); border-radius: var(--radius);
   background: var(--accent); color: #fff; font: 600 var(--size-sm)/1.5 var(--font-ui); cursor: pointer;
 }
-.rename button.secondary { background: var(--surface); color: var(--accent-strong); }
+.edit button.secondary { background: var(--surface); color: var(--accent-strong); }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--s1) var(--s4); margin-top: var(--s5); max-width: 40rem; }
 .facts dt { color: var(--muted); font-size: var(--size-sm); }
 .facts dd { margin: 0; }
@@ -505,6 +512,30 @@ td.when { white-space: nowrap; }
 }
 .chip-ok { background: var(--good-tint); color: var(--good); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
 .chip-bad { background: var(--bad-tint); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+/* A tag chip is a filter link, so it is neutral: the status tints belong to ok/error alone. */
+.chip-tag { margin-left: var(--s1); color: var(--text-soft); background: var(--surface-sunken); text-decoration: none; }
+.chip-tag:hover { color: var(--accent-strong); border-color: var(--accent); }
+.tags { display: inline-flex; flex-wrap: wrap; gap: var(--s1); }
+p.tags { margin: var(--s3) 0 0; }
+
+/* The star is the developer's own mark on a session: accent, before the name, never a colour
+   the page uses for anything else. */
+.starred { display: inline-flex; margin-right: var(--s1); color: var(--accent); vertical-align: middle; }
+.star-toggle { display: inline-flex; align-items: center; gap: var(--s1); font-size: var(--size-sm); color: var(--muted); text-decoration: none; }
+.star-toggle:hover { color: var(--accent-strong); }
+.star-toggle[aria-current="true"] { color: var(--accent-strong); font-weight: 600; }
+
+/* The machine door next to the human one: quiet links in a panel heading. */
+.api-links { display: inline-flex; gap: var(--s2); margin-left: auto; font-size: var(--size-xs); font-weight: 400; letter-spacing: .04em; text-transform: uppercase; }
+.api-links a { color: var(--muted); text-decoration: none; }
+.api-links a:hover { color: var(--accent-strong); text-decoration: underline; }
+
+/* A note the developer wrote about a session. Their text, not the conversation's; newlines are
+   the only markup it gets. */
+.note-text {
+  margin: var(--s3) 0 0; max-width: 60ch; padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--line-strong); color: var(--text-soft); font-size: var(--size-sm);
+}
 
 /* ---- overview: deltas, weekday rhythm, the three-table grid ---------------------- */
 

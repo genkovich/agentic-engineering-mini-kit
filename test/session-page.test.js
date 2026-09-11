@@ -248,7 +248,7 @@ test('T15: the session page shows the head, the resume command and a labelled co
   assert.match(html, new RegExp(`claude --resume ${SESSION_A}`), 'the resume command names this session');
   assert.match(html, /class="resume"/);
   assert.match(html, new RegExp(`href="/projects/-Users-demo-sources-checkout-api"`), 'the project links to its page');
-  assert.match(html, new RegExp(`/sessions/${SESSION_A}/rename\\?back=`), 'Edit returns to this page');
+  assert.match(html, new RegExp(`/sessions/${SESSION_A}/edit\\?back=`), 'Edit returns to this page');
   assert.match(html, /estimate, prices as of 2026-09-11/, 'the cost is labelled an estimate and dated');
   assert.match(html, /class="cost-note"/);
   assert.match(html, /<ol class="timeline">/);
@@ -300,7 +300,13 @@ test('T16: the project page is scoped, keeps its base in every link and drops th
     'the search form posts back to this project page');
   assert.match(html, new RegExp(`href="/projects/${dir}\\?days=7"`), 'the period switch keeps the base');
   assert.match(html, new RegExp(`href="/projects/${dir}\\?limit=10"`), 'the limit switch keeps the base');
-  assert.ok(!/href="[^"]*\?[^"]*project=/.test(html), 'a scoped page never writes ?project= into a link');
+  // The page's own navigation stays inside the project by its base, never by a query param.
+  // The `.api-links` JSON link is the one exception: /api/sessions has no scoped base, so the
+  // only way it can describe this project is `?project=`, and it is excluded here by name.
+  const navigation = html.replaceAll(/<span class="api-links">[\s\S]*?<\/span>/g, '');
+  assert.ok(!/href="[^"]*\?[^"]*project=/.test(navigation), 'a scoped page never writes ?project= into a link');
+  assert.match(html, new RegExp(`<span class="api-links"><a href="/api/sessions\\?project=${dir}"`),
+    'the JSON link describes the same scope the page shows');
 
   // Rows lead to the sessions themselves.
   assert.match(html, new RegExp(`href="/sessions/${SESSION_A}"`));

@@ -5,66 +5,18 @@ import { claude, claudeHome, listSessions, getSession, PERIOD_CHOICES } from './
 import { listSources } from './lib/sources.js';
 import { layout } from './views/layout.js';
 import { renderSessionIndex, renderNotes } from './views/session-index.js';
-import { renderRename } from './views/rename.js';
+import { renderEditSession } from './views/edit-session.js';
 import { renderSession } from './views/session.js';
 import { renderProject } from './views/project.js';
 import { renderOverview } from './views/overview.js';
 import { buildOverview, PERIOD_CHOICES_OVERVIEW } from './lib/analytics.js';
 import { PRICING } from './lib/pricing.js';
-import { readLabels, setLabel } from './lib/store.js';
+import { readStore, updateSession } from './lib/store.js';
+import { registerApiRoutes } from './lib/api-routes.js';
+import { parseLimit, parseDaysFrom, parseSort, parseText, parseTag, parseFlag, MAX_LIMIT } from './lib/query.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const app = express();
-
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 1000;
-
-// A query param the developer typed by hand is expected to sometimes be wrong; falling back to
-// the default (with an explanation) keeps the page usable instead of failing the whole request.
-function parseLimit(rawLimit) {
-  if (rawLimit === undefined) return { limit: DEFAULT_LIMIT, invalidLimitNote: null };
-  const n = Number(rawLimit);
-  if (!Number.isInteger(n) || n <= 0 || n > MAX_LIMIT) {
-    return {
-      limit: DEFAULT_LIMIT,
-      invalidLimitNote: `Invalid ?limit=${rawLimit}, showing the default ${DEFAULT_LIMIT} instead.`,
-    };
-  }
-  return { limit: n, invalidLimitNote: null };
-}
-
-const DEFAULT_DAYS = 30;
-
-// Same contract as parseLimit: a hand-typed ?days= that is not one of the offered periods
-// falls back to the default window and says so, instead of failing the request. The choices
-// differ per page (the overview offers a year on top of the dashboard's three), so they are a
-// parameter; the fallback and the wording are not.
-function parseDaysFrom(raw, choices, fallback = DEFAULT_DAYS) {
-  if (raw === undefined) return { days: fallback, invalidDaysNote: null };
-  const n = Number(raw);
-  if (!choices.includes(n)) {
-    return {
-      days: fallback,
-      invalidDaysNote: `Invalid ?days=${raw}, showing ${fallback} days instead.`,
-    };
-  }
-  return { days: n, invalidDaysNote: null };
-}
-
-function parseDays(raw) {
-  return parseDaysFrom(raw, PERIOD_CHOICES);
-}
-
-// The three orderings the session list offers. Anything else is a typo, so the list falls back
-// to the newest-first order the page has always had, and says why.
-const SORT_CHOICES = ['time', 'tokens', 'cost'];
-const DEFAULT_SORT = 'time';
-
-function parseSort(raw) {
-  if (raw === undefined) return { sort: DEFAULT_SORT, invalidSortNote: null };
-  if (SORT_CHOICES.includes(raw)) return { sort: raw, invalidSortNote: null };
-  return { sort: DEFAULT_SORT, invalidSortNote: `Invalid ?sort=${raw}, sorting by time instead.` };
-}
 
 app.use(express.static(join(here, 'public')));
 app.use(express.urlencoded({ extended: false, limit: '4kb' }));
@@ -73,10 +25,11 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, sources: listSources(), claudeHome: claudeHome() });
 });
 
-// Free-text filters typed by the developer: trimmed, capped, and only ever used for matching.
-function parseText(raw, max) {
-  return typeof raw === 'string' ? raw.trim().slice(0, max) : '';
-}
+// The JSON endpoints and the CSV download register themselves; they read the same index the
+// pages do, through the same lib/query.js parsers (lib/api-routes.js).
+registerApiRoutes(app);
+
+const parseDays = (raw) => parseDaysFrom(raw, PERIOD_CHOICES);
 
 app.get('/', (req, res) => {
   const { limit, invalidLimitNote } = parseLimit(req.query.limit);
@@ -84,8 +37,9 @@ app.get('/', (req, res) => {
   const project = parseText(req.query.project, 300);
   const { days, invalidDaysNote } = parseDays(req.query.days);
   const { sort, invalidSortNote } = parseSort(req.query.sort);
-  const labels = readLabels();
-  const result = listSessions({ limit, q, project, days, sort, labels });
+  const tag = parseTag(req.query.tag);
+  const starred = parseFlag(req.query.starred);
+  const result = listSessions({ limit, q, project, days, sort, entries: readStore(), tag, starred });
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
@@ -99,6 +53,8 @@ ${renderSessionIndex(result.sessions, {
       project,
       days,
       sort,
+      tag,
+      starred,
       asOf: PRICING.asOf,
       projects: result.projects,
       colors: result.colors,
@@ -125,7 +81,7 @@ const CHART_SCRIPT = '<script src="/dashboard.js" defer></script>';
 app.get('/overview', (req, res) => {
   const { days, invalidDaysNote } = parseDaysFrom(req.query.days, PERIOD_CHOICES_OVERVIEW);
   const project = parseText(req.query.project, 300);
-  const result = listSessions({ limit: 1, project, days, labels: readLabels() });
+  const result = listSessions({ limit: 1, project, days, entries: readStore() });
   const overview = buildOverview(result.scoped, result.projects, { days });
   const state = { days, project, projectName: result.projects.find((p) => p.projectDirName === project)?.name ?? project };
   res.type('html').send(layout({
@@ -156,7 +112,7 @@ function notFoundPage(res, heading, sentence) {
 // One session. `getSession` validates the id itself and answers null for anything it cannot
 // name, so the param never reaches the filesystem as a path fragment.
 app.get('/sessions/:id', (req, res) => {
-  const session = getSession(req.params.id, { labels: readLabels() });
+  const session = getSession(req.params.id, { entries: readStore() });
   if (!session) {
     notFoundPage(res, 'Session not found', 'No session with that id is in the index.');
     return;
@@ -187,13 +143,15 @@ app.get('/projects/:dir', (req, res) => {
     notFoundPage(res, 'Project not found', 'No project directory with that name is in the index.');
     return;
   }
-  const result = listSessions({ limit, q, project: dir, days, sort, labels: readLabels() });
+  const tag = parseTag(req.query.tag);
+  const starred = parseFlag(req.query.starred);
+  const result = listSessions({ limit, q, project: dir, days, sort, entries: readStore(), tag, starred });
   const project = result.projects.find((p) => p.projectDirName === dir);
   if (!project) {
     notFoundPage(res, 'Project not found', 'No project directory with that name is in the index.');
     return;
   }
-  const state = { base: `/projects/${dir}`, q, project: dir, limit, days, sort };
+  const state = { base: `/projects/${dir}`, q, project: dir, limit, days, sort, tag, starred };
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
@@ -226,29 +184,60 @@ function safeBack(raw) {
   return typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
 }
 
-app.get('/sessions/:id/rename', (req, res) => {
-  const session = getSession(req.params.id, { labels: readLabels() });
+// The dashboard's own fields for one session. `/edit` is the page; `/rename` is what step 1
+// shipped and stays a working alias, so a bookmark or a script written against it keeps working.
+function editPage(req, res) {
+  const store = readStore();
+  const session = getSession(req.params.id, { entries: store });
   if (!session) {
     notFoundPage(res, 'Session not found', 'No session with that id is in the index.');
     return;
   }
-  const back = safeBack(req.query.back);
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
     source: claude.label,
     home: claudeHome(),
-    body: renderRename({ session, label: readLabels()[session.sessionId] ?? null, back }),
+    body: renderEditSession({ session, entry: store[session.sessionId] ?? {}, back: safeBack(req.query.back) }),
   }));
-});
+}
 
-app.post('/sessions/:id/rename', (req, res) => {
-  const session = getSession(req.params.id, { labels: readLabels() });
+// A form that carries the hidden `form=edit` marker is authoritative about all four fields, so
+// an empty box means "clear this one" and an absent checkbox means "not starred". A POST without
+// the marker (the `/rename` alias) patches only the fields it actually sent, which is what keeps
+// a rename from silently wiping tags it never knew about.
+function applyEdit(sessionId, body) {
+  if (body.clear) {
+    updateSession(sessionId, { label: '', tags: [], note: '', starred: false });
+    return;
+  }
+  const full = body.form === 'edit';
+  const patch = {};
+  if (full || Object.hasOwn(body, 'label')) patch.label = body.label ?? '';
+  if (full || Object.hasOwn(body, 'tags')) patch.tags = body.tags ?? '';
+  if (full || Object.hasOwn(body, 'note')) patch.note = body.note ?? '';
+  if (full || Object.hasOwn(body, 'starred')) patch.starred = Boolean(body.starred);
+  updateSession(sessionId, patch);
+}
+
+function editSubmit(req, res) {
+  const session = getSession(req.params.id, { entries: readStore() });
   if (!session) { res.status(404).type('text').send('Session not found'); return; }
   const body = req.body ?? {};
-  setLabel(session.sessionId, body.clear ? '' : body.label);
+  applyEdit(session.sessionId, body);
   res.redirect(303, safeBack(body.back));
+}
+
+app.get('/sessions/:id/edit', editPage);
+app.post('/sessions/:id/edit', editSubmit);
+
+// The alias. The GET moves to the new address so the URL in the bar matches the page; the POST
+// stays in place, because a redirect would drop the form body.
+app.get('/sessions/:id/rename', (req, res) => {
+  const query = new URLSearchParams(req.query).toString();
+  res.redirect(302, `/sessions/${encodeURIComponent(req.params.id)}/edit${query ? `?${query}` : ''}`);
 });
+app.post('/sessions/:id/rename', editSubmit);
 
 const PORT = Number(process.env.PORT || 4180);
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

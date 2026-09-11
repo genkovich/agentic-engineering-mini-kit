@@ -159,9 +159,24 @@ function buildWeekday(overview) {
 
 /* ---- tables ------------------------------------------------------------------------------ */
 
+// Every table on this page is also a download and a JSON document at the same scope: the links
+// sit in the panel heading, at the query the page is already at, so the machine door is next to
+// the human one. `csv` names the table in the allow-list `server.js` enforces.
+function apiLinks(state, csvTable = '') {
+  const query = new URLSearchParams();
+  if (state.days && state.days !== 30) query.set('days', String(state.days));
+  if (state.project) query.set('project', state.project);
+  const suffix = query.toString() ? `&${query}` : '';
+  const csv = csvTable
+    ? `<a href="${esc(`/overview.csv?table=${csvTable}${suffix}`)}">CSV</a>`
+    : '';
+  const json = `<a href="${esc(`/api/overview?${query.toString()}`)}">JSON</a>`;
+  return `<span class="api-links">${csv}${csvTable ? '' : json}</span>`;
+}
+
 const costText = (cost) => (cost.usd === 0 && !cost.priced ? '—' : `≈ ${esc(formatUsd(cost.usd))}`);
 
-function buildProjects(overview, colors) {
+function buildProjects(overview, colors, state) {
   if (overview.projects.length === 0) return '';
   const rows = overview.projects.map((p) => `<tr>
 <td data-label="Project"><a class="project" href="/projects/${esc(p.projectDirName)}">${mark(colors, p.projectDirName)}<span class="project-name">${esc(p.name)}</span></a></td>
@@ -171,7 +186,7 @@ function buildProjects(overview, colors) {
 <td class="num" data-label="Est. cost">${costText(p.cost)}</td>
 </tr>`).join('\n');
   return `<section class="panel">
-<h2>${icon('project')}Projects <span class="dim">${overview.projects.length}</span></h2>
+<h2>${icon('project')}Projects <span class="dim">${overview.projects.length}</span>${apiLinks(state, 'projects')}</h2>
 <div class="table-wrap"><table>
 <thead><tr><th>Project</th><th class="num">Sessions</th><th class="num">Turns</th><th class="num">Output tokens</th><th class="num">Est. cost</th></tr></thead>
 <tbody>
@@ -181,7 +196,7 @@ ${rows}
 </section>`;
 }
 
-function buildModels(overview) {
+function buildModels(overview, state) {
   if (overview.models.length === 0) return '';
   const clsOf = (i) => (i < MODEL_SLOTS ? `mark model-${i}` : 'mark model-other');
   const rows = overview.models.map((m, i) => `<tr>
@@ -192,7 +207,7 @@ function buildModels(overview) {
 <td class="num" data-label="Est. cost"${m.priced ? '' : ' title="This model is not in the price table, so it has no estimate"'}>${m.priced ? `≈ ${esc(formatUsd(m.cost.usd))}` : 'no price'}</td>
 </tr>`).join('\n');
   return `<section class="panel">
-<h2>${icon('model')}Models <span class="dim">${overview.models.length}</span></h2>
+<h2>${icon('model')}Models <span class="dim">${overview.models.length}</span>${apiLinks(state, 'models')}</h2>
 <div class="table-wrap"><table>
 <thead><tr><th>Model</th><th class="num">Turns</th><th class="num">Sessions</th><th class="num">Output tokens</th><th class="num">Est. cost</th></tr></thead>
 <tbody>
@@ -202,7 +217,7 @@ ${rows}
 </section>`;
 }
 
-function buildTools(overview) {
+function buildTools(overview, state) {
   if (overview.tools.length === 0) return '';
   const rows = overview.tools.map((t) => `<tr>
 <td data-label="Tool"><span class="tool-name">${esc(t.name)}</span></td>
@@ -212,7 +227,7 @@ function buildTools(overview) {
 <td class="num" data-label="Sessions">${t.sessions}</td>
 </tr>`).join('\n');
   return `<section class="panel">
-<h2>${icon('tool')}Tools <span class="dim">${overview.tools.length}</span></h2>
+<h2>${icon('tool')}Tools <span class="dim">${overview.tools.length}</span>${apiLinks(state, 'tools')}</h2>
 <div class="table-wrap"><table>
 <thead><tr><th>Tool</th><th class="num">Calls</th><th class="num">Errors</th><th class="num">Error rate</th><th class="num">Sessions</th></tr></thead>
 <tbody>
@@ -228,7 +243,7 @@ function sessionLink(row) {
   return `<a class="title" href="/sessions/${esc(row.sessionId)}" title="${esc(row.sessionId)}">${esc(text)}</a>`;
 }
 
-function buildTop(heading, iconName, rows, valueHeading, valueCell) {
+function buildTop(heading, iconName, rows, valueHeading, valueCell, links = '') {
   if (rows.length === 0) return '';
   const body = rows.map((row) => `<tr>
 <td data-label="Session">${sessionLink(row)}</td>
@@ -237,7 +252,7 @@ function buildTop(heading, iconName, rows, valueHeading, valueCell) {
 <td class="num" data-label="${esc(valueHeading)}">${valueCell(row)}</td>
 </tr>`).join('\n');
   return `<section class="panel">
-<h2>${icon(iconName)}${esc(heading)} <span class="dim">top ${rows.length}</span></h2>
+<h2>${icon(iconName)}${esc(heading)} <span class="dim">top ${rows.length}</span>${links}</h2>
 <div class="table-wrap"><table>
 <thead><tr><th>Session</th><th>Project</th><th class="num">Turns</th><th class="num">${esc(valueHeading)}</th></tr></thead>
 <tbody>
@@ -262,7 +277,7 @@ export function renderOverview({ overview, state = {}, colors = {}, asOf = '', n
   })));
   const head = `<div class="page-head">
 <div class="panel-head"><h1>Overview</h1>${periods}</div>
-<p class="sub">${esc(shortDay(overview.window.start))} to ${esc(shortDay(overview.window.end))}<span class="sep">·</span>compared with ${esc(shortDay(overview.prev.start))} to ${esc(shortDay(overview.prev.end))}<span class="sep">·</span>every cost is an estimate, prices as of ${esc(asOf)}</p>
+<p class="sub">${esc(shortDay(overview.window.start))} to ${esc(shortDay(overview.window.end))}<span class="sep">·</span>compared with ${esc(shortDay(overview.prev.start))} to ${esc(shortDay(overview.prev.end))}<span class="sep">·</span>every cost is an estimate, prices as of ${esc(asOf)}${apiLinks(state)}</p>
 </div>`;
   const slid = overview.windowSlid
     ? `<p class="dim chart-note">Nothing in the last ${overview.span} days, so this is the ${overview.span} days up to the latest activity, ${esc(shortDay(overview.window.end))}.</p>`
@@ -285,12 +300,12 @@ ${buildCostChart(overview, asOf)}
 ${buildTokensChart(overview)}
 </div>
 <div class="overview-grid">
-${buildProjects(overview, colors)}
-${buildModels(overview)}
-${buildTools(overview)}
+${buildProjects(overview, colors, state)}
+${buildModels(overview, state)}
+${buildTools(overview, state)}
 </div>
 <div class="charts">
-${buildTop('Most expensive sessions', 'dollar', overview.topExpensive, 'Est. cost', (row) => costText(row.cost))}
+${buildTop('Most expensive sessions', 'dollar', overview.topExpensive, 'Est. cost', (row) => costText(row.cost), apiLinks(state, 'sessions'))}
 ${buildTop('Longest sessions', 'clock', overview.topLongest, 'Duration', (row) => esc(formatDuration(row.durationMs)))}
 </div>
 ${buildWeekday(overview)}`;

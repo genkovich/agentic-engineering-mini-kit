@@ -28,10 +28,19 @@ function costLine(analytics, asOf) {
 
 function buildHead(session, colors, back, asOf) {
   const { analytics, stats } = session;
+  const star = session.starred ? `<span class="starred" title="Starred">${icon('star', 'Starred')}</span>` : '';
   const heading = session.label !== null
-    ? `${esc(session.label)} <span class="named-flag">${icon('tag')}named by you</span>`
-    : esc(session.title ?? 'Untitled session');
-  const editHref = `/sessions/${esc(session.sessionId)}/rename?back=${encodeURIComponent(back)}`;
+    ? `${star}${esc(session.label)} <span class="named-flag">${icon('tag')}named by you</span>`
+    : `${star}${esc(session.title ?? 'Untitled session')}`;
+  const tags = session.tags.length
+    ? `<p class="sub tags">${session.tags.map((t) => `<a class="chip chip-tag" href="/?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</p>`
+    : '';
+  // The note is the developer's own text, not the conversation's: escaped first, then its line
+  // breaks turned into <br>, so nothing a note contains can become markup.
+  const note = session.note
+    ? `<p class="note-text">${esc(session.note).replaceAll('\r\n', '\n').replaceAll('\n', '<br>')}</p>`
+    : '';
+  const editHref = `/sessions/${esc(session.sessionId)}/edit?back=${encodeURIComponent(back)}`;
   const project = `<a class="project" href="/projects/${esc(session.projectDirName)}">${mark(colors, session.projectDirName)}<span class="project-name">${esc(session.projectName)}</span><span class="project-path" title="${esc(session.projectPath)}">${esc(session.projectPath)}</span></a>`;
   const models = analytics.perModel.length
     ? analytics.perModel.map((m) => esc(m.model)).join(', ')
@@ -49,6 +58,8 @@ function buildHead(session, colors, back, asOf) {
 <p class="sub facts-line">${facts}</p>
 <p class="resume-line"><code class="resume">claude --resume ${esc(session.sessionId)}</code> <a class="edit-link" href="${editHref}">${icon('pencil')}Edit</a></p>
 <p class="cost-note">${icon('dollar')}${esc(costLine(analytics, asOf))}</p>
+${tags}
+${note}
 </div>`;
 }
 
