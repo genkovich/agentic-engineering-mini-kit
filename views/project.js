@@ -19,8 +19,8 @@ function buildHead(project, colors) {
 
 // `dash` is the dashboard built over this project's sessions; `state.base` is already
 // `/projects/<dir>`, so every control on the page stays inside it.
-export function renderProject({ project, dash, sessions, state, colors = {}, notes = '', meta = {} }) {
+export function renderProject({ project, dash, sessions, state, colors = {}, notes = '', meta = {}, asOf = '' }) {
   return `${buildHead(project, colors)}
-${renderDashboardPanels(dash, state, colors, notes)}
+${renderDashboardPanels(dash, state, colors, notes, asOf)}
 ${renderSessionsList(sessions, state, meta)}`;
 }

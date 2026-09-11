@@ -8,6 +8,8 @@ import { renderSessionIndex, renderNotes } from './views/session-index.js';
 import { renderRename } from './views/rename.js';
 import { renderSession } from './views/session.js';
 import { renderProject } from './views/project.js';
+import { renderOverview } from './views/overview.js';
+import { buildOverview, PERIOD_CHOICES_OVERVIEW } from './lib/analytics.js';
 import { PRICING } from './lib/pricing.js';
 import { readLabels, setLabel } from './lib/store.js';
 
@@ -34,17 +36,34 @@ function parseLimit(rawLimit) {
 const DEFAULT_DAYS = 30;
 
 // Same contract as parseLimit: a hand-typed ?days= that is not one of the offered periods
-// falls back to the default window and says so, instead of failing the request.
-function parseDays(raw) {
-  if (raw === undefined) return { days: DEFAULT_DAYS, invalidDaysNote: null };
+// falls back to the default window and says so, instead of failing the request. The choices
+// differ per page (the overview offers a year on top of the dashboard's three), so they are a
+// parameter; the fallback and the wording are not.
+function parseDaysFrom(raw, choices, fallback = DEFAULT_DAYS) {
+  if (raw === undefined) return { days: fallback, invalidDaysNote: null };
   const n = Number(raw);
-  if (!PERIOD_CHOICES.includes(n)) {
+  if (!choices.includes(n)) {
     return {
-      days: DEFAULT_DAYS,
-      invalidDaysNote: `Invalid ?days=${raw}, showing ${DEFAULT_DAYS} days instead.`,
+      days: fallback,
+      invalidDaysNote: `Invalid ?days=${raw}, showing ${fallback} days instead.`,
     };
   }
   return { days: n, invalidDaysNote: null };
+}
+
+function parseDays(raw) {
+  return parseDaysFrom(raw, PERIOD_CHOICES);
+}
+
+// The three orderings the session list offers. Anything else is a typo, so the list falls back
+// to the newest-first order the page has always had, and says why.
+const SORT_CHOICES = ['time', 'tokens', 'cost'];
+const DEFAULT_SORT = 'time';
+
+function parseSort(raw) {
+  if (raw === undefined) return { sort: DEFAULT_SORT, invalidSortNote: null };
+  if (SORT_CHOICES.includes(raw)) return { sort: raw, invalidSortNote: null };
+  return { sort: DEFAULT_SORT, invalidSortNote: `Invalid ?sort=${raw}, sorting by time instead.` };
 }
 
 app.use(express.static(join(here, 'public')));
@@ -64,8 +83,9 @@ app.get('/', (req, res) => {
   const q = parseText(req.query.q, 100);
   const project = parseText(req.query.project, 300);
   const { days, invalidDaysNote } = parseDays(req.query.days);
+  const { sort, invalidSortNote } = parseSort(req.query.sort);
   const labels = readLabels();
-  const result = listSessions({ limit, q, project, days, labels });
+  const result = listSessions({ limit, q, project, days, sort, labels });
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
@@ -78,12 +98,15 @@ ${renderSessionIndex(result.sessions, {
       q,
       project,
       days,
+      sort,
+      asOf: PRICING.asOf,
       projects: result.projects,
       colors: result.colors,
       totalSessions: result.totalSessions,
       dashboard: result.dashboard,
       invalidLimitNote,
       invalidDaysNote,
+      invalidSortNote,
       truncated: result.truncated,
       totalFound: result.totalFound,
       unreadableCount: result.unreadableCount,
@@ -93,6 +116,32 @@ ${renderSessionIndex(result.sessions, {
 });
 
 const CHART_SCRIPT = '<script src="/dashboard.js" defer></script>';
+
+// The period overview. It reuses the index's scan (the sessions come out of listSessions with
+// their stats already read and memoised) and hands them to lib/analytics.js, which knows nothing
+// about where they came from. `limit: 0` would hide the list, so the scan is asked for every
+// session and only the aggregates are used.
+app.get('/overview', (req, res) => {
+  const { days, invalidDaysNote } = parseDaysFrom(req.query.days, PERIOD_CHOICES_OVERVIEW);
+  const project = parseText(req.query.project, 300);
+  const result = listSessions({ limit: MAX_LIMIT, project, days, labels: readLabels() });
+  const overview = buildOverview(result.sessions, result.projects, { days });
+  const state = { days, project, projectName: result.projects.find((p) => p.projectDirName === project)?.name ?? project };
+  res.type('html').send(layout({
+    title: 'agent-ops',
+    current: '/overview',
+    source: claude.label,
+    home: claudeHome(),
+    head: CHART_SCRIPT,
+    body: renderOverview({
+      overview,
+      state,
+      colors: result.colors,
+      asOf: PRICING.asOf,
+      notes: renderNotes({ invalidDaysNote, unreadableCount: result.unreadableCount }),
+    }),
+  }));
+});
 
 // A page that says "not here" instead of a stack trace: same shell, same wording as the rename
 // 404, so a mistyped URL never looks like a crash.
@@ -132,17 +181,18 @@ app.get('/projects/:dir', (req, res) => {
   const { limit, invalidLimitNote } = parseLimit(req.query.limit);
   const q = parseText(req.query.q, 100);
   const { days, invalidDaysNote } = parseDays(req.query.days);
+  const { sort, invalidSortNote } = parseSort(req.query.sort);
   if (!PROJECT_DIR.test(dir)) {
     notFoundPage(res, 'Project not found', 'No project directory with that name is in the index.');
     return;
   }
-  const result = listSessions({ limit, q, project: dir, days, labels: readLabels() });
+  const result = listSessions({ limit, q, project: dir, days, sort, labels: readLabels() });
   const project = result.projects.find((p) => p.projectDirName === dir);
   if (!project) {
     notFoundPage(res, 'Project not found', 'No project directory with that name is in the index.');
     return;
   }
-  const state = { base: `/projects/${dir}`, q, project: dir, limit, days };
+  const state = { base: `/projects/${dir}`, q, project: dir, limit, days, sort };
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
@@ -155,13 +205,15 @@ app.get('/projects/:dir', (req, res) => {
       sessions: result.sessions,
       state,
       colors: result.colors,
-      notes: renderNotes({ invalidLimitNote, invalidDaysNote, unreadableCount: result.unreadableCount }),
+      asOf: PRICING.asOf,
+      notes: renderNotes({ invalidLimitNote, invalidDaysNote, invalidSortNote, unreadableCount: result.unreadableCount }),
       meta: {
         projects: result.projects,
         colors: result.colors,
         totalSessions: result.totalSessions,
         totalFound: result.totalFound,
         truncated: result.truncated,
+        asOf: PRICING.asOf,
       },
     }),
   }));

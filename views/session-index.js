@@ -4,7 +4,7 @@
 // The panels are exported on their own so the project and session pages can reuse them.
 // Never touches the disk: everything arrives already read and aggregated by lib/claude.
 import { esc, empty, icon } from './layout.js';
-import { humanCount, humanSize, formatMtime, isoMtime, shortDay } from './format.js';
+import { humanCount, humanSize, formatMtime, isoMtime, shortDay, formatUsd } from './format.js';
 import { columnChart, sparkline, shareBar, segmented, stat, mark, slotOf } from './charts.js';
 
 const LIMIT_CHOICES = [10, 25, 50, 100];
@@ -12,6 +12,7 @@ const MAX_LIMIT = 1000; // the server's ceiling for ?limit, mirrored so the "All
 const DEFAULT_LIMIT = 50;
 const PERIODS = [7, 30, 90];
 const DEFAULT_DAYS = 30;
+const DEFAULT_SORT = 'time';
 
 // Every control is a link: the page state lives in the query string, so it can be copied.
 // Only non-default values are written, which keeps the plain "/" as the canonical home.
@@ -25,6 +26,7 @@ export function href(state, overrides = {}) {
   if (base === '/' && next.project) params.set('project', next.project);
   if (next.days !== DEFAULT_DAYS) params.set('days', String(next.days));
   if (next.limit !== DEFAULT_LIMIT) params.set('limit', String(next.limit));
+  if (next.sort && next.sort !== DEFAULT_SORT) params.set('sort', String(next.sort));
   const query = params.toString();
   return query ? `${base}?${query}` : base;
 }
@@ -41,6 +43,7 @@ export function renderNotes(meta) {
   const notes = [];
   if (meta.invalidLimitNote) notes.push(meta.invalidLimitNote);
   if (meta.invalidDaysNote) notes.push(meta.invalidDaysNote);
+  if (meta.invalidSortNote) notes.push(meta.invalidSortNote);
   if (meta.unreadableCount > 0) {
     const noun = meta.unreadableCount === 1 ? 'entry' : 'entries';
     notes.push(`${meta.unreadableCount} source ${noun} could not be read and were skipped.`);
@@ -50,7 +53,18 @@ export function renderNotes(meta) {
 
 /* ---- dashboard: stats, chart, projects, models ------------------------------------------ */
 
-function buildStats(dash) {
+// Every cost on the page is an estimate from the static dated table (ADR-0007), so the tile
+// carries the caveat and the table's date in its title rather than implying a billed figure.
+function costTile(dash, asOf) {
+  const cost = dash.period?.cost;
+  if (!cost) return '';
+  const value = `≈ ${formatUsd(cost.usd)}`;
+  const caveat = cost.priced ? '' : ' Some models in this period have no price and are excluded.';
+  return stat('dollar', value, 'est. cost', `Estimate from the static price table, prices as of ${asOf};`
+    + ` models without a price are excluded.${caveat}`);
+}
+
+function buildStats(dash, asOf = '') {
   const p = dash.period;
   const window = `${shortDay(dash.windowStart)} to ${shortDay(dash.windowEnd)}`;
   const n = dash.span;
@@ -62,6 +76,7 @@ ${stat('turns', String(p.turns), 'assistant turns', window)}
 ${stat('tokens', humanCount(p.tokens.output), 'output tokens', `${p.tokens.output} output tokens, ${window}`)}
 ${stat('tokens', humanCount(p.tokens.input), 'input tokens', `${p.tokens.input} input tokens, ${window}`)}
 ${stat('tokens', humanCount(p.tokens.cacheRead + p.tokens.cacheWrite), 'cache tokens', `${p.tokens.cacheRead} read + ${p.tokens.cacheWrite} written, ${window}`)}
+${costTile(dash, asOf)}
 </div>`;
 }
 
@@ -196,8 +211,10 @@ ${body}
 // The whole dashboard above the sessions list: stat strip, models, the activity heading with
 // its period switch, both charts and the projects table. Shared with the project page.
 // `notes` is page-level warning HTML; it sits under the stat strip, where the index puts it.
-export function renderDashboardPanels(dash, state, colors = {}, notes = '') {
-  return `${buildStats(dash)}
+// `asOf` is the price table's date (PRICING.asOf), passed in by the server because a view never
+// imports lib/*; without it the cost tile simply has no date to show.
+export function renderDashboardPanels(dash, state, colors = {}, notes = '', asOf = '') {
+  return `${buildStats(dash, asOf)}
 ${notes}
 ${buildModels(dash)}
 <div class="panel-head"><h2>${icon('calendar')}Activity <span class="dim">${esc(shortDay(dash.windowStart))} to ${esc(shortDay(dash.windowEnd))}</span></h2>${periodSwitch(dash, state)}</div>
@@ -218,7 +235,8 @@ function buildToolbar(state, projects, meta) {
   const options = projects.map((p) => `<option value="${esc(p.projectDirName)}"${p.projectDirName === state.project ? ' selected' : ''}>${esc(p.name)} (${p.count})</option>`).join('');
   const projectSelect = scoped ? '' : `\n<select name="project" aria-label="Project"><option value="">All projects</option>${options}</select>`;
   const hiddenLimit = (state.limit !== DEFAULT_LIMIT ? `<input type="hidden" name="limit" value="${state.limit}">` : '')
-    + (state.days !== DEFAULT_DAYS ? `<input type="hidden" name="days" value="${state.days}">` : '');
+    + (state.days !== DEFAULT_DAYS ? `<input type="hidden" name="days" value="${state.days}">` : '')
+    + (state.sort && state.sort !== DEFAULT_SORT ? `<input type="hidden" name="sort" value="${esc(state.sort)}">` : '');
   const search = `<form class="search" method="get" action="${esc(state.base ?? '/')}" role="search">
 ${hiddenLimit}<input type="search" name="q" value="${esc(state.q)}" placeholder="Search name, project or id" aria-label="Search sessions">${projectSelect}
 <button type="submit">${icon('search')}Apply</button>${state.q || state.project ? `<a class="clear" href="${esc(href(state, { q: '', project: '' }))}">Clear</a>` : ''}
@@ -248,13 +266,33 @@ function nameCell(session, state) {
   return `<a class="untitled" href="${to}" title="${esc(session.sessionId)} · The journal carries no generated title for this session">Untitled session</a>${rename}`;
 }
 
-function sessionRow(session, state, colors) {
+// The estimate is per session, from the same table the rest of the page uses. A session with no
+// turns, or one whose only models have no price, shows an em dash: a zero would read as "free".
+function costCell(session, asOf) {
+  const cost = session.cost;
+  const models = Object.keys(session.stats.models);
+  if (!cost || session.stats.turns === 0 || (!cost.priced && cost.usd === 0)) {
+    const why = session.stats.turns === 0
+      ? 'No assistant turns in this session.'
+      : `No price for ${models.join(', ') || 'the models in this session'}.`;
+    return `<td class="num" data-label="Est. cost" title="${esc(why)}">—</td>`;
+  }
+  const breakdown = models
+    .map((m) => `${m}: ${session.stats.models[m].tokens.output} out, ${session.stats.models[m].tokens.input} in`)
+    .join(' · ');
+  const missing = cost.priced ? '' : ` No price for ${cost.unpriced.join(', ')}, excluded.`;
+  const title = `${breakdown}. Estimate, prices as of ${asOf}.${missing}`;
+  return `<td class="num" data-label="Est. cost" title="${esc(title)}">≈ ${esc(formatUsd(cost.usd))}</td>`;
+}
+
+function sessionRow(session, state, colors, asOf) {
   return `<tr>
 <td data-label="Name">${nameCell(session, state)}</td>
 <td data-label="Project"><a class="project" href="/projects/${esc(session.projectDirName)}">${mark(colors, session.projectDirName)}<span class="project-name">${esc(session.projectName)}</span></a></td>
 <td class="id" data-label="Session" title="${esc(session.sessionId)}">${esc(session.sessionId)}</td>
 <td class="num" data-label="Turns">${session.stats.turns}</td>
 <td class="num" data-label="Output tokens" title="${session.stats.tokens.output} output, ${session.stats.tokens.input} input, ${session.stats.tokens.cacheRead + session.stats.tokens.cacheWrite} cache">${humanCount(session.stats.tokens.output)}</td>
+${costCell(session, asOf)}
 <td class="num" data-label="Size" title="${session.size} bytes">${humanSize(session.size)}</td>
 <td class="num when" data-label="Last activity" title="${isoMtime(session.mtimeMs)}">${formatMtime(session.mtimeMs)}</td>
 </tr>`;
@@ -272,8 +310,18 @@ function buildSessionsHeading(sessions, meta, state) {
 
 // The sessions section on its own: heading, toolbar and either the table or the filtered
 // empty state. Shared with the project page, which passes its own `state.base`.
+// A sortable column header is a plain link that re-requests the page with `?sort=`. Only the
+// column the list is actually ordered by carries aria-sort, so a screen reader is told about
+// one ordering, not four offers.
+function sortableHeader(state, key, label) {
+  const on = (state.sort ?? DEFAULT_SORT) === key;
+  const sorted = on ? ' aria-sort="descending"' : '';
+  return `<th class="num"${sorted}><a href="${esc(href(state, { sort: key }))}">${esc(label)}</a></th>`;
+}
+
 export function renderSessionsList(sessions, state, meta = {}) {
   const colors = meta.colors ?? {};
+  const asOf = meta.asOf ?? '';
   const projects = meta.projects ?? [];
   const filtered = state.q || state.project;
   let list;
@@ -284,9 +332,9 @@ export function renderSessionsList(sessions, state, meta = {}) {
   } else {
     list = `<div class="table-wrap">
 <table>
-<thead><tr><th>Name</th><th>Project</th><th>Session</th><th class="num">Turns</th><th class="num">Output tokens</th><th class="num">Size</th><th class="num">Last activity</th></tr></thead>
+<thead><tr><th>Name</th><th>Project</th><th>Session</th><th class="num">Turns</th>${sortableHeader(state, 'tokens', 'Output tokens')}${sortableHeader(state, 'cost', 'Est. cost')}<th class="num">Size</th>${sortableHeader(state, 'time', 'Last activity')}</tr></thead>
 <tbody>
-${sessions.map((s) => sessionRow(s, state, colors)).join('\n')}
+${sessions.map((s) => sessionRow(s, state, colors, asOf)).join('\n')}
 </tbody>
 </table>
 </div>`;
@@ -305,6 +353,7 @@ export function renderSessionIndex(sessions, meta = {}) {
     project: meta.project ?? '',
     limit: meta.limit ?? DEFAULT_LIMIT,
     days: meta.days ?? DEFAULT_DAYS,
+    sort: meta.sort ?? DEFAULT_SORT,
   };
   const colors = meta.colors ?? {};
   const notesHtml = renderNotes({ ...meta, shown: sessions.length });
@@ -320,6 +369,6 @@ export function renderSessionIndex(sessions, meta = {}) {
     ? `<p class="sub scope">Showing <strong>${esc(projects.find((p) => p.projectDirName === state.project)?.name ?? state.project)}</strong> only. <a href="${esc(href(state, { project: '' }))}">All projects</a></p>`
     : '';
   return `${scope}
-${renderDashboardPanels(dash, state, colors, notesHtml)}
+${renderDashboardPanels(dash, state, colors, notesHtml, meta.asOf ?? '')}
 ${renderSessionsList(sessions, state, meta)}`;
 }

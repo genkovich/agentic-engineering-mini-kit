@@ -49,7 +49,7 @@ export function icon(name, label = '') {
 }
 
 // Top-level navigation. A page marks itself current by passing its href as `current`.
-const NAV = [{ href: '/', label: 'Dashboard' }];
+const NAV = [{ href: '/', label: 'Dashboard' }, { href: '/overview', label: 'Overview' }];
 
 function renderNav(current) {
   return NAV.map(({ href, label }) => {

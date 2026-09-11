@@ -506,6 +506,31 @@ td.when { white-space: nowrap; }
 .chip-ok { background: var(--good-tint); color: var(--good); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
 .chip-bad { background: var(--bad-tint); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
 
+/* ---- overview: deltas, weekday rhythm, the three-table grid ---------------------- */
+
+/* The change against the previous period, under a stat tile's label. Direction is carried by
+   the sign and the color together, never by color alone. */
+.delta { font-size: var(--size-sm); font-variant-numeric: tabular-nums; color: var(--muted); margin-top: var(--s1); }
+.delta-up { color: var(--good); }
+.delta-down { color: var(--bad); }
+
+.weekday-chart { display: block; width: 100%; max-width: 320px; height: 60px; }
+.weekday-chart rect { fill: var(--accent); }
+.weekday-chart rect.hit { fill: transparent; }
+.weekday-labels {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  max-width: 320px; margin-top: var(--s1);
+  font-size: var(--size-xs); color: var(--muted); text-align: center;
+}
+
+.overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s5); align-items: start; }
+
+/* A sortable column header is a link; the column the list is actually ordered by gets the same
+   accent underline the current nav item does, so "you are here" reads identically everywhere. */
+th a { color: inherit; }
+th a:hover { color: var(--text); }
+th[aria-sort] a { color: var(--text); border-bottom: 2px solid var(--accent); text-decoration: none; }
+
 /* ---- narrow screens: the table becomes a list of labelled rows ------------------- */
 @media (max-width: 720px) {
   .top-inner, main, .foot-inner { padding-inline: var(--s4); }
@@ -515,6 +540,7 @@ td.when { white-space: nowrap; }
   .search input { min-width: 0; flex: 1 1 100%; }
   .search select { max-width: 100%; }
   .charts { grid-template-columns: 1fr; }
+  .overview-grid { grid-template-columns: 1fr; }
   .spark { width: 100%; }
   .stat { flex-basis: 50%; }
   .stat:nth-child(2n) { border-right: 0; }
