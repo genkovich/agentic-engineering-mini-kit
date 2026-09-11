@@ -208,3 +208,27 @@ test('T17: a long journal keeps only the tail of its timeline, while the stats s
   }
   assert.ok(timelineMemoSize() <= 8, `the timeline memo evicts down to eight, saw ${timelineMemoSize()}`);
 });
+
+test('T12: a tool result whose tool_use_id matches nothing is booked under unknown, not dropped', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'session-page-orphan-'));
+  const path = join(dir, 'orphan.jsonl');
+  writeFileSync(path, `${[
+    JSON.stringify({ type: 'user', timestamp: '2026-01-01T00:00:00.000Z', message: { role: 'user', content: 'x' } }),
+    JSON.stringify({
+      type: 'user',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_never_seen', is_error: true, content: 'x' }] },
+    }),
+  ].join('\n')}\n`);
+  const st = statSync(path);
+
+  const stats = readSessionStats(path, st.size, st.mtimeMs);
+  assert.deepEqual(stats.tools.unknown, { calls: 1, errors: 1 },
+    'the orphaned failure is counted, so toolsTop cannot disagree with the timeline');
+
+  const timeline = readSessionTimeline(path, st.size, st.mtimeMs);
+  const result = timeline.events.find((e) => e.kind === 'result');
+  assert.ok(result, 'the orphaned result is still an event');
+  assert.equal(result.name, 'unknown');
+  assert.equal(result.ok, false);
+});
