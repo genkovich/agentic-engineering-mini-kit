@@ -1,7 +1,7 @@
 import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { claude, claudeHome, listSessions, PERIOD_CHOICES } from './lib/claude/index.js';
+import { claude, claudeHome, listSessions, getSession, PERIOD_CHOICES } from './lib/claude/index.js';
 import { listSources } from './lib/sources.js';
 import { layout } from './views/layout.js';
 import { renderSessionIndex } from './views/session-index.js';
@@ -89,22 +89,14 @@ ${renderSessionIndex(result.sessions, {
   }));
 });
 
-const SESSION_ID = /^[A-Za-z0-9-]{1,64}$/;
-
 // Only a same-origin path is accepted as the place to return to, so the redirect can never
 // leave the dashboard.
 function safeBack(raw) {
   return typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
 }
 
-function findSession(sessionId) {
-  if (!SESSION_ID.test(sessionId)) return null;
-  const { sessions } = listSessions({ limit: MAX_LIMIT, q: sessionId, labels: readLabels() });
-  return sessions.find((s) => s.sessionId === sessionId) ?? null;
-}
-
 app.get('/sessions/:id/rename', (req, res) => {
-  const session = findSession(req.params.id);
+  const session = getSession(req.params.id, { labels: readLabels() });
   if (!session) {
     res.status(404).type('html').send(layout({ title: 'agent-ops', current: '/', source: claude.label, home: claudeHome(),
       body: '<h1>Session not found</h1><p class="sub">No session with that id is in the index. <a href="/">Back to the dashboard</a></p>' }));
@@ -121,7 +113,7 @@ app.get('/sessions/:id/rename', (req, res) => {
 });
 
 app.post('/sessions/:id/rename', (req, res) => {
-  const session = findSession(req.params.id);
+  const session = getSession(req.params.id, { labels: readLabels() });
   if (!session) { res.status(404).type('text').send('Session not found'); return; }
   const body = req.body ?? {};
   setLabel(session.sessionId, body.clear ? '' : body.label);
