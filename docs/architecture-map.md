@@ -42,6 +42,7 @@ C4Container
     Container(views, "views/layout.js", "Template strings", "Yedynyi HTML-shar: esc, layout, empty")
     Container(css, "public/style.css", "CSS", "Yedynyi stylovyi fail cherez express.static")
     Container(registry, "lib/sources.js", "ESM module", "Reiestr dzherel; Map u zamykanni")
+    Container(sessions, "lib/sessions.js", "ESM module", "Indeks sesii nad usima dzherelamy")
     Container(claude, "lib/claude/index.js", "ESM module", "Adapter Claude Code: claudeHome, projectsDir")
     ContainerDb(home, "CLAUDE_HOME", "Filesystem", "Domashnia teka ahenta z sesiiamy .jsonl; lyshe chytannia")
     Rel(dev, web, "HTTP GET na 127.0.0.1:4180")
@@ -58,8 +59,9 @@ C4Container
 | Module | Path | Layers | Wired at | Responsibility |
 |---|---|---|---|---|
 | app | `server.js` | app / http | `server.js:9-24` | Express-застосунок, маршрути `GET /api/health` і `GET /`, статика |
-| sources registry | `lib/sources.js` | ports | `server.js:5` | `registerSource` / `getSource` / `listSources` над `Map` у замиканні (`lib/sources.js:10`) |
-| claude adapter | `lib/claude/index.js` | infra | `server.js:4` (імпорт заради реєстрації) | `claudeHome()`, `projectsDir()`; реєструє себе на імпорті (`lib/claude/index.js:14-18`) |
+| sources registry | `lib/sources.js` | ports | `server.js` (імпорт) | контракт джерела: `registerSource` / `getSource` / `allSources` / `listSources` над `Map` у замиканні. Адаптер має дати `id`, `label`, `home`, `scan`, `readHead`, `describeProject`, `readStats`, `readTimeline`, `readExtras` |
+| sessions orchestration | `lib/sessions.js` | domain | `server.js`, `lib/api-routes.js` (імпорти) | індекс поверх усіх зареєстрованих джерел: `listSessions`, `getSession`, `buildDashboard`, `sortAndLimit`, `assignColors`, `groupByProject`. Про вендорів не знає, кожній сесії додає `source: {id, label}` |
+| claude adapter | `lib/claude/index.js` | infra | `server.js` (імпорт заради реєстрації) | `claudeHome()`, `projectsDir()`, скан і читання голови журналу; складає обʼєкт джерела з контракту й реєструє себе на імпорті |
 | views | `views/layout.js`, `views/session-index.js`, `views/rename.js` | ui | `server.js` (імпорти) | каркас, дашборд і форма назви; `views/AGENTS.md` |
 | store | `lib/store.js` | infra | `server.js` (імпорт) | єдине місце запису: `labels.json` у `AGENT_OPS_HOME`, атомарно через tmp + rename |
 | styles | `public/style.css` | ui | `server.js:11` | єдиний стиль, віддається `express.static` |

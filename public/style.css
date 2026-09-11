@@ -515,6 +515,10 @@ td.when { white-space: nowrap; }
 /* A tag chip is a filter link, so it is neutral: the status tints belong to ok/error alone. */
 .chip-tag { margin-left: var(--s1); color: var(--text-soft); background: var(--surface-sunken); text-decoration: none; }
 .chip-tag:hover { color: var(--accent-strong); border-color: var(--accent); }
+/* The source chip names which agent a session came from. It only appears once a second source
+   is registered, and it filters the list the way a tag chip does, so it reads the same. */
+.chip-source { margin-left: var(--s2); color: var(--muted); background: var(--surface-sunken); text-decoration: none; }
+.chip-source:hover { color: var(--accent-strong); border-color: var(--accent); }
 .tags { display: inline-flex; flex-wrap: wrap; gap: var(--s1); }
 p.tags { margin: var(--s3) 0 0; }
 

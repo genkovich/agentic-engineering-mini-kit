@@ -45,8 +45,9 @@ Git не зберігає mtime. `preverify` і `predemo` вирівнюють �
 ## Де що лежить
 
 - `server.js`: маршрути Express і складання сторінок.
-- `lib/sources.js`: реєстр джерел. Нове джерело це `lib/<vendor>/index.js`, який викликає `registerSource()`. Реєстрація відбувається на імпорті модуля, тому новий адаптер треба ще й імпортувати в `server.js`; без цього рядка `listSources()` мовчки його не покаже.
+- `lib/sources.js`: реєстр і контракт джерел. Адаптер дає `id`, `label`, `home`, `scan`, `readHead`, `describeProject`, `readStats`, `readTimeline`, `readExtras` (і, за бажанням, `pruneStatsMemo`); чого бракує, те `registerSource()` кидає помилкою. Нове джерело це `lib/<vendor>/index.js`, який викликає `registerSource()`. Реєстрація відбувається на імпорті модуля, тому новий адаптер треба ще й імпортувати в `server.js`; без цього рядка `listSources()` мовчки його не покаже.
 - `lib/claude/index.js`: адаптер Claude Code, віддає `claudeHome()` і `projectsDir()`.
+- `lib/sessions.js`: оркестрація над джерелами. Обходить `allSources()`, збагачує сирі записи методами того джерела, що їх дало, і додає кожній сесії `source: {id, label}`. Ні від якого `lib/<vendor>/` не залежить; `listSessions`, `getSession` і решта живуть тут, а `lib/claude/index.js` лишає тонкі ре-експорти.
 - `lib/query.js`: розбір параметрів запиту, спільний для сторінок і API.
 - `lib/api.js` і `lib/csv.js`: `toApiSession(s)` з явним переліком полів і `toCsv(columns, rows)` за RFC 4180. `lib/api-routes.js` реєструє на `app` JSON-ендпоінти й `GET /overview.csv`.
 - `views/`: HTML-шар. Карта шару у `views/AGENTS.md`.

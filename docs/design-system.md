@@ -45,7 +45,8 @@ updated_at: "2026-09-11"
 | Shell (`layout()`) | `views/layout.js` (`layout()`) | з бейджем джерела / без; з шляхом у футері / без | Шапка: бренд-знак + назва, бейдж джерела, навігація праворуч. Футер: що читаємо і нагадування «read-only». Сторінка позначає себе в навігації через `current` |
 | Brand mark | `views/layout.js` (`BRAND_MARK`) | — | Inline SVG «три рядки журналу»; той самий SVG як favicon у `data:` URI. Не міняти без окремого рішення |
 | Nav | `views/layout.js` (`NAV`), `public/style.css` (`nav a`) | default / hover / `aria-current="page"` | Підкреслення акцентом позначає поточну сторінку. Новий розділ додається в масив `NAV` |
-| Source badge | `public/style.css` (`.source`) | — | Капсула з зеленою крапкою і назвою джерела (`claude.label`). Крапка поки статична; стан «джерело недоступне» ще не проєктували |
+| Source badge | `public/style.css` (`.source`) | — | По капсулі на кожне зареєстроване джерело: зелена крапка, назва (`label`) і кількість сесій; `title` несе домашню теку. Крапка поки статична; стан «джерело недоступне» ще не проєктували |
+| Source chip | `public/style.css` (`.chip.chip-source`) | default / hover | NEW: назва джерела в комірці проєкту в рядку сесії, посилання-фільтр `?source=`. Зʼявляється лише коли зареєстровано більше одного джерела |
 | Page heading + summary (`h1` + `.sub`) | `public/style.css` (`h1`, `.sub`) | — | Заголовок сторінки; `.sub` для одного речення контексту (наприклад, «Showing X only») |
 | Toolbar | `public/style.css` (`.toolbar`, `.control`, `.search`) | — | Ряд контролів під підсумком: підпис ліворуч, далі контроли; переноситься на вузькому екрані |
 | Segmented links | `public/style.css` (`.segmented`) | default / hover / `aria-current="true"` / focus | Група взаємовиключних варіантів як звичайних посилань, без JS. Використано для періоду графіка і ліміту переліку, включно з посиланням «All N» |

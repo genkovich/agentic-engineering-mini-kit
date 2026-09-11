@@ -30,6 +30,7 @@ export function href(state, overrides = {}) {
   if (next.sort && next.sort !== DEFAULT_SORT) params.set('sort', String(next.sort));
   if (next.tag) params.set('tag', String(next.tag));
   if (next.starred) params.set('starred', '1');
+  if (next.source) params.set('source', String(next.source));
   const query = params.toString();
   return query ? `${base}?${query}` : base;
 }
@@ -47,6 +48,7 @@ export function renderNotes(meta) {
   if (meta.invalidLimitNote) notes.push(meta.invalidLimitNote);
   if (meta.invalidDaysNote) notes.push(meta.invalidDaysNote);
   if (meta.invalidSortNote) notes.push(meta.invalidSortNote);
+  if (meta.invalidSourceNote) notes.push(meta.invalidSourceNote);
   if (meta.unreadableCount > 0) {
     const noun = meta.unreadableCount === 1 ? 'entry' : 'entries';
     notes.push(`${meta.unreadableCount} source ${noun} could not be read and were skipped.`);
@@ -256,9 +258,19 @@ ${hiddenLimit}<input type="search" name="q" value="${esc(state.q)}" placeholder=
   // One toggle, not a segmented pair: "Starred" is on or off, and the link always says which
   // way it is about to go. aria-current marks it the way the nav marks the current page.
   const starToggle = `<a class="star-toggle" href="${esc(href(state, { starred: !state.starred }))}"${state.starred ? ' aria-current="true"' : ''}>${icon('star')}Starred</a>`;
+  // The source switch only exists once there is something to switch between: with a single
+  // registered source the control would be a filter with one choice, and the markup stays
+  // exactly what it was before the dashboard learned about sources at all.
+  const sources = meta.sources ?? [];
+  const sourceSwitch = sources.length > 1
+    ? `<span class="control"><span class="label">Source</span>${segmented([
+      { label: 'All', to: href(state, { source: '' }), on: !state.source },
+      ...sources.map((s) => ({ label: `${s.label} (${s.count})`, to: href(state, { source: s.id }), on: s.id === state.source })),
+    ])}</span>\n`
+    : '';
   return `<div class="toolbar">
 ${search}
-<span class="control">${starToggle}</span>
+${sourceSwitch}<span class="control">${starToggle}</span>
 <span class="control"><span class="label">Show newest</span>${limit}</span>
 </div>`;
 }
@@ -310,10 +322,18 @@ function costCell(session, asOf) {
   return `<td class="num" data-label="Est. cost" title="${esc(title)}">≈ ${esc(formatUsd(cost.usd))}</td>`;
 }
 
-function sessionRow(session, state, colors, asOf) {
+// The source chip sits in the project cell and only appears once a second source is registered:
+// with one source every row would carry the same word, and the single-source markup is what the
+// dashboard shipped with.
+function sourceChip(session, state, multiSource) {
+  if (!multiSource || !session.source) return '';
+  return `<a class="chip chip-source" href="${esc(href(state, { source: session.source.id }))}">${esc(session.source.label)}</a>`;
+}
+
+function sessionRow(session, state, colors, asOf, multiSource = false) {
   return `<tr>
 <td data-label="Name">${nameCell(session, state)}</td>
-<td data-label="Project"><a class="project" href="/projects/${esc(session.projectDirName)}">${mark(colors, session.projectDirName)}<span class="project-name">${esc(session.projectName)}</span></a></td>
+<td data-label="Project"><a class="project" href="/projects/${esc(session.projectDirName)}">${mark(colors, session.projectDirName)}<span class="project-name">${esc(session.projectName)}</span></a>${sourceChip(session, state, multiSource)}</td>
 <td class="id" data-label="Session" title="${esc(session.sessionId)}">${esc(session.sessionId)}</td>
 <td class="num" data-label="Turns">${session.stats.turns}</td>
 <td class="num" data-label="Output tokens" title="${session.stats.tokens.output} output, ${session.stats.tokens.input} input, ${session.stats.tokens.cacheRead + session.stats.tokens.cacheWrite} cache">${humanCount(session.stats.tokens.output)}</td>
@@ -365,7 +385,7 @@ export function renderSessionsList(sessions, state, meta = {}) {
 <table>
 <thead><tr><th>Name</th><th>Project</th><th>Session</th><th class="num">Turns</th>${sortableHeader(state, 'tokens', 'Output tokens')}${sortableHeader(state, 'cost', 'Est. cost')}<th class="num">Size</th>${sortableHeader(state, 'time', 'Last activity')}</tr></thead>
 <tbody>
-${sessions.map((s) => sessionRow(s, state, colors, asOf)).join('\n')}
+${sessions.map((s) => sessionRow(s, state, colors, asOf, (meta.sources ?? []).length > 1)).join('\n')}
 </tbody>
 </table>
 </div>`;
@@ -387,6 +407,7 @@ export function renderSessionIndex(sessions, meta = {}) {
     sort: meta.sort ?? DEFAULT_SORT,
     tag: meta.tag ?? '',
     starred: Boolean(meta.starred),
+    source: meta.source ?? '',
   };
   const colors = meta.colors ?? {};
   const notesHtml = renderNotes({ ...meta, shown: sessions.length });
@@ -408,6 +429,10 @@ export function renderSessionIndex(sessions, meta = {}) {
   }
   if (state.starred) {
     scopes.push(`Starred only. <a href="${esc(href(state, { starred: false }))}">Show all</a>`);
+  }
+  if (state.source) {
+    const label = (meta.sources ?? []).find((s) => s.id === state.source)?.label ?? state.source;
+    scopes.push(`Source <strong>${esc(label)}</strong> only. <a href="${esc(href(state, { source: '' }))}">Every source</a>`);
   }
   const scope = scopes.length ? `<p class="sub scope">${scopes.join(' ')}</p>` : '';
   return `${scope}

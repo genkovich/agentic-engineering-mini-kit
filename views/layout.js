@@ -59,11 +59,18 @@ function renderNav(current) {
   }).join('\n');
 }
 
-// `source` and `home` describe what the dashboard is reading; both are optional so a page that
-// has nothing to say about the source still renders a complete shell.
-export function layout({ title, body, nav = '', head = '', current = '/', source = '', home = '' }) {
-  const sourceBadge = source ? `<span class="source">${esc(source)}</span>` : '';
-  const homeLine = home ? `<span>Reading <code>${esc(home)}</code></span>` : '';
+// `sources` describes what the dashboard is reading: one entry per registered source,
+// `{ id, label, home, count }`, with `count` optional (a page that did not build an index has
+// no counts to show). It is optional itself, so a page that has nothing to say about the
+// sources still renders a complete shell. Each source gets its own capsule, and the footer
+// names every home directory, so a second agent needs no change here.
+export function layout({ title, body, nav = '', head = '', current = '/', sources = [] }) {
+  const sourceBadge = sources.map((s) => {
+    const count = typeof s.count === 'number' ? ` <span class="dim">${s.count}</span>` : '';
+    return `<span class="source" title="${esc(s.home)}">${esc(s.label)}${count}</span>`;
+  }).join('');
+  const homes = sources.map((s) => s.home).filter(Boolean);
+  const homeLine = homes.length ? `<span>Reading ${homes.map((h) => `<code>${esc(h)}</code>`).join(', ')}</span>` : '';
   return `<!doctype html>
 <html lang="en">
 <head>

@@ -1,8 +1,12 @@
 import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { claude, claudeHome, listSessions, getSession, PERIOD_CHOICES } from './lib/claude/index.js';
-import { listSources } from './lib/sources.js';
+// Importing the Claude adapter is what registers it: registerSource() runs on import, and
+// lib/sessions.js only ever sees what the registry holds. Keep this import even when nothing
+// but claudeHome() is used from it, or the dashboard would come up with no sources at all.
+import { claudeHome } from './lib/claude/index.js';
+import { listSessions, getSession, PERIOD_CHOICES } from './lib/sessions.js';
+import { allSources } from './lib/sources.js';
 import { layout } from './views/layout.js';
 import { renderSessionIndex, renderNotes } from './views/session-index.js';
 import { renderEditSession } from './views/edit-session.js';
@@ -13,7 +17,7 @@ import { buildOverview, PERIOD_CHOICES_OVERVIEW } from './lib/analytics.js';
 import { PRICING } from './lib/pricing.js';
 import { readStore, updateSession } from './lib/store.js';
 import { registerApiRoutes } from './lib/api-routes.js';
-import { parseLimit, parseDaysFrom, parseSort, parseText, parseTag, parseFlag, MAX_LIMIT } from './lib/query.js';
+import { parseLimit, parseDaysFrom, parseSort, parseText, parseTag, parseFlag, parseSource, MAX_LIMIT } from './lib/query.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const app = express();
@@ -21,9 +25,24 @@ export const app = express();
 app.use(express.static(join(here, 'public')));
 app.use(express.urlencoded({ extended: false, limit: '4kb' }));
 
+// Every registered source with the directory it reads. `claudeHome` stays alongside them: it is
+// what the endpoint answered before there was more than one source, and a script may read it.
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, sources: listSources(), claudeHome: claudeHome() });
+  res.json({ ok: true, sources: sourceHomes(), claudeHome: claudeHome() });
 });
+
+function sourceHomes() {
+  return allSources().map((a) => ({ id: a.id, label: a.label, home: a.home() }));
+}
+
+const sourceIds = () => allSources().map((a) => a.id);
+
+// The shell's source list: every registered source with its home, and the per-source session
+// counts when the page has already built an index (a 404 page has none, and says nothing).
+function pageShell(counts = []) {
+  const byId = new Map(counts.map((c) => [c.id, c.count]));
+  return sourceHomes().map((s) => ({ ...s, count: byId.get(s.id) }));
+}
 
 // The JSON endpoints and the CSV download register themselves; they read the same index the
 // pages do, through the same lib/query.js parsers (lib/api-routes.js).
@@ -39,12 +58,12 @@ app.get('/', (req, res) => {
   const { sort, invalidSortNote } = parseSort(req.query.sort);
   const tag = parseTag(req.query.tag);
   const starred = parseFlag(req.query.starred);
-  const result = listSessions({ limit, q, project, days, sort, entries: readStore(), tag, starred });
+  const { source, invalidSourceNote } = parseSource(req.query.source, sourceIds());
+  const result = listSessions({ limit, q, project, days, sort, entries: readStore(), tag, starred, source });
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
-    source: claude.label,
-    home: claudeHome(),
+    sources: pageShell(result.sources),
     head: '<script src="/dashboard.js" defer></script>',
     body: `<h1>Dashboard</h1>
 ${renderSessionIndex(result.sessions, {
@@ -55,6 +74,9 @@ ${renderSessionIndex(result.sessions, {
       sort,
       tag,
       starred,
+      source,
+      sources: result.sources,
+      invalidSourceNote,
       asOf: PRICING.asOf,
       projects: result.projects,
       colors: result.colors,
@@ -66,7 +88,7 @@ ${renderSessionIndex(result.sessions, {
       truncated: result.truncated,
       totalFound: result.totalFound,
       unreadableCount: result.unreadableCount,
-      home: claudeHome(),
+      home: sourceHomes().map((h) => h.home).join(', '),
     })}`,
   }));
 });
@@ -81,21 +103,21 @@ const CHART_SCRIPT = '<script src="/dashboard.js" defer></script>';
 app.get('/overview', (req, res) => {
   const { days, invalidDaysNote } = parseDaysFrom(req.query.days, PERIOD_CHOICES_OVERVIEW);
   const project = parseText(req.query.project, 300);
-  const result = listSessions({ limit: 1, project, days, entries: readStore() });
+  const { source, invalidSourceNote } = parseSource(req.query.source, sourceIds());
+  const result = listSessions({ limit: 1, project, days, entries: readStore(), source });
   const overview = buildOverview(result.scoped, result.projects, { days });
   const state = { days, project, projectName: result.projects.find((p) => p.projectDirName === project)?.name ?? project };
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/overview',
-    source: claude.label,
-    home: claudeHome(),
+    sources: pageShell(result.sources),
     head: CHART_SCRIPT,
     body: renderOverview({
       overview,
       state,
       colors: result.colors,
       asOf: PRICING.asOf,
-      notes: renderNotes({ invalidDaysNote, unreadableCount: result.unreadableCount }),
+      notes: renderNotes({ invalidDaysNote, invalidSourceNote, unreadableCount: result.unreadableCount }),
     }),
   }));
 });
@@ -104,7 +126,7 @@ app.get('/overview', (req, res) => {
 // 404, so a mistyped URL never looks like a crash.
 function notFoundPage(res, heading, sentence) {
   res.status(404).type('html').send(layout({
-    title: 'agent-ops', current: '/', source: claude.label, home: claudeHome(),
+    title: 'agent-ops', current: '/', sources: pageShell(),
     body: `<h1>${heading}</h1><p class="sub">${sentence} <a href="/">Back to the dashboard</a></p>`,
   }));
 }
@@ -122,8 +144,7 @@ app.get('/sessions/:id', (req, res) => {
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
-    source: claude.label,
-    home: claudeHome(),
+    sources: pageShell(),
     head: CHART_SCRIPT,
     body: renderSession({ session, colors, back, asOf: PRICING.asOf }),
   }));
@@ -155,8 +176,7 @@ app.get('/projects/:dir', (req, res) => {
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
-    source: claude.label,
-    home: claudeHome(),
+    sources: pageShell(),
     head: CHART_SCRIPT,
     body: renderProject({
       project,
@@ -168,6 +188,7 @@ app.get('/projects/:dir', (req, res) => {
       notes: renderNotes({ invalidLimitNote, invalidDaysNote, invalidSortNote, unreadableCount: result.unreadableCount }),
       meta: {
         projects: result.projects,
+        sources: result.sources,
         colors: result.colors,
         totalSessions: result.totalSessions,
         totalFound: result.totalFound,
@@ -196,8 +217,7 @@ function editPage(req, res) {
   res.type('html').send(layout({
     title: 'agent-ops',
     current: '/',
-    source: claude.label,
-    home: claudeHome(),
+    sources: pageShell(),
     body: renderEditSession({ session, entry: store[session.sessionId] ?? {}, back: safeBack(req.query.back) }),
   }));
 }

@@ -220,13 +220,13 @@ test('T25: the API answers the documented shapes and a JSON 404', async () => {
   assert.match(list.headers.get('content-type'), /application\/json/);
   assert.equal(list.headers.get('cache-control'), 'no-store');
   const body = await list.json();
-  assert.deepEqual(Object.keys(body).sort(), ['generatedAt', 'projects', 'sessions', 'totalFound', 'truncated']);
+  assert.deepEqual(Object.keys(body).sort(), ['generatedAt', 'projects', 'sessions', 'sources', 'totalFound', 'truncated']);
   assert.equal(body.sessions.length, 2);
   assert.equal(body.truncated, true);
   assert.ok(body.totalFound > 2);
   assert.deepEqual(Object.keys(body.sessions[0]).sort(), [
     'cwd', 'label', 'mtimeMs', 'name', 'note', 'projectDerived', 'projectDirName', 'projectName',
-    'projectPath', 'sessionId', 'size', 'starred', 'stats', 'tags', 'title',
+    'projectPath', 'sessionId', 'size', 'source', 'starred', 'stats', 'tags', 'title',
   ]);
   assert.deepEqual(Object.keys(body.projects[0]).sort(),
     ['count', 'derived', 'name', 'path', 'projectDirName', 'tokens', 'turns']);
@@ -311,7 +311,7 @@ test('T26: /overview.csv downloads an allow-listed table and refuses anything el
   const projects = await srv.text('/overview.csv?table=projects');
   assert.match(projects.split('\r\n')[0], /^project,path,sessions,turns,output_tokens,est_cost_usd$/);
   const sessions = await srv.text('/overview.csv?table=sessions&days=90');
-  assert.match(sessions.split('\r\n')[0], /^session_id,name,project,turns,output_tokens,est_cost_usd,duration_ms$/);
+  assert.match(sessions.split('\r\n')[0], /^session_id,name,source,project,turns,output_tokens,est_cost_usd,duration_ms$/);
   assert.match(sessions, new RegExp(SESSION_A));
 
   const bad = await srv.get('/overview.csv?table=nope');
