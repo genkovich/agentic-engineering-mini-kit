@@ -7,22 +7,28 @@
 `views/layout.js` — спільний каркас. Він експортує три функції:
 
 - `esc(value)`: екранує `&`, `<`, `>` і `"`. `null` та `undefined` стають порожнім рядком.
-- `layout({ title, body, nav, head })`: повертає готовий документ від `<!doctype html>`. `nav` і `head` за замовчуванням порожні.
+- `layout({ title, body, nav, head, current, source, home })`: повертає готовий документ від `<!doctype html>`: шапка з бренд-знаком, бейджем джерела (`source`) і навігацією, футер зі шляхом, який читаємо (`home`). `current` це href поточної сторінки в навігації, за замовчуванням `/`. `nav` і `head` за замовчуванням порожні; розділи навігації лежать у масиві `NAV` усередині файла.
 - `empty(message)`: абзац `<p class="empty">` для порожнього стану.
 
-`views/session-index.js` — друга сторінка шару, для складнішого рендеру (`views/AGENTS.md` конвенція: складніша сторінка виносить свою функцію в окремий файл). Експортує `renderSessionIndex(sessions, meta)`: таблиця сесій, порожній стан через `empty()`, примітки (`invalidLimitNote`, `truncated`, `unreadableCount`) через `esc()`. Сам не звертається до диска — приймає готові дані.
+Бренд-знак це inline SVG, той самий рядок іде у favicon як `data:` URI; зовнішніх ресурсів шапка не тягне. У `<head>` перед стилями підключено `public/theme.js`: він ставить `data-theme` на `<html>` з `localStorage` до першого кадру, а кнопка `data-theme-toggle` в навігації перемикає тему; подвійний клік повертає системну.
+
+`views/session-index.js` — головна сторінка, дашборд. Експортує `renderSessionIndex(sessions, meta)`: смужка зведення за 30 днів, графік сесій за днями як inline SVG (стовпчики складені за проєктами, `<title>` на кожному дні), таблиця проєктів, список моделей, і внизу недавні сесії з формою пошуку (`<form method="get">`: поле `q`, `<select name="project">`), перемикачем ліміту (`?limit=`) і посиланням «Rename» у кожному рядку. Агрегати приходять готовими в `meta.dashboard` з `listSessions()`; порожній стан через `empty()` зі шляхом із `meta.home` або з текстом запиту; примітки (`invalidLimitNote`, `truncated`, `unreadableCount`) через `esc()`. Стан сторінки живе в параметрах запиту. Сам не звертається до диска.
+
+`views/rename.js` — форма власної назви сесії. Експортує `renderRename({ session, label, back })`: одна `<form method="post">` з полем `label`, кнопкою очищення і прихованим `back` для повернення. Єдина сторінка, за якою стоїть запис, і пише він у `AGENT_OPS_HOME` через `lib/store.js`, не в теку агента.
+
+Інлайн-стилі заборонені CSP, тому ширина смужок і стовпчиків задається атрибутами SVG, а не `style=`.
 
 ## Залежності
 
 `views/layout.js` не імпортує нічого, це кінцева точка графа. Він не звертається до `lib/*` і про джерела сесій не знає.
 
-`views/session-index.js` імпортує `esc`/`empty` з `views/layout.js` і `deriveProjectLabel` з `lib/claude/index.js` (єдиний імпорт з `lib/*` у цьому шарі).
+`views/session-index.js` і `views/rename.js` імпортують лише `esc`/`empty` з `views/layout.js`; імпортів з `lib/*` у шарі немає. Усе потрібне приходить у записах сесій (`name`, `label`, `title`, `projectName`, `projectPath`, `projectDerived`, `stats`) і в `meta.dashboard`.
 
-Споживач обох це `server.js`. Маршрут `GET /` читає `?limit`, викликає `listSessions()`, передає результат у `renderSessionIndex()` і складає body для `layout()`: `res.type('html').send(layout({...}))`. Нова сторінка йде тим самим шляхом: рядок або функція рендеру → `layout()` → `res.send()`.
+Споживач обох це `server.js`. Маршрут `GET /` читає `?limit`, `?q` і `?project`, викликає `listSessions({ limit, q, project, labels })`, передає результат у `renderSessionIndex()` і складає body для `layout()`: `res.type('html').send(layout({...}))`. Нова сторінка йде тим самим шляхом: рядок або функція рендеру → `layout()` → `res.send()`. Маршрути `GET`/`POST /sessions/:id/rename` рендерять `renderRename()` і після запису відповідають `303` на `back`.
 
 ## Стилі
 
-`public/style.css` віддає `express.static` (`server.js:11`). `layout()` лише посилається на `/style.css` рядком у `<head>`; імпорту стилів у JS немає.
+`public/style.css` віддає `express.static` (`server.js:29`). `layout()` лише посилається на `/style.css` рядком у `<head>`; імпорту стилів у JS немає. Токени, інвентар компонентів і конвенції описує `docs/design-system.md`; нова сторінка складається з класів, які там перелічені, а нові токени в сторінці не оголошує.
 
 ## Конвенції
 

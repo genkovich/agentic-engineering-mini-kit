@@ -17,3 +17,11 @@ test('the shell renders and declares a CSP', async () => {
   assert.match(html, /<title>agent-ops<\/title>/);
   assert.match(html, /Content-Security-Policy/);
 });
+
+test('the shell loads the theme script before the stylesheet and renders the theme toggle', async () => {
+  const html = await srv.text('/');
+  assert.ok(html.indexOf('<script src="/theme.js">') < html.indexOf('<link rel="stylesheet"'), 'theme.js must run before first paint');
+  assert.match(html, /data-theme-toggle/);
+  const res = await srv.get('/theme.js');
+  assert.equal(res.status, 200);
+});

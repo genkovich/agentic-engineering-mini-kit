@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, statSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chmodSync, readdirSync } from 'node:fs';
-import { deriveProjectLabel, scanRawSessions, sortAndLimit, listSessions } from '../lib/claude/index.js';
+import { deriveProjectLabel, scanRawSessions, sortAndLimit, listSessions, readSessionHead, describeProject, groupByProject, readSessionStats, assignColors } from '../lib/claude/index.js';
+import { readLabels, labelsFile } from '../lib/store.js';
 import { fixtureHome, startServer } from './helpers.js';
 import { sessionFiles } from './oracle.js';
 
@@ -245,7 +246,8 @@ test('T7: the rendered page lists every fixture session with project label, id, 
   for (const sessionId of expectedSessionIds) {
     assert.ok(html.includes(sessionId), `expected the page to list session ${sessionId}`);
   }
-  assert.match(html, /\/Users\/demo\/sources\/checkout\/api/, 'expected a decoded project label');
+  assert.match(html, /\/Users\/demo\/sources\/checkout-api/, 'expected the real working directory from the journal head');
+  assert.match(html, /class="project-name">checkout-api</, 'expected the project name derived from cwd');
   const st = statSync(join(fixtureProjectsDir, '-Users-demo-sources-checkout-api', 'aaaaaaaa-1111-4111-8111-111111111111.jsonl'));
   assert.match(html, new RegExp(`title="${st.size} bytes"`), 'expected the exact byte size in a title attribute');
 });
@@ -266,9 +268,11 @@ test('T7: an empty CLAUDE_HOME renders the empty state', async () => {
   }
 });
 
-test('T7: the truncated note appears when there are more sessions than the limit', async () => {
+test('T7: a truncated list says so in the heading and offers an All link, without an amber note', async () => {
   const html = await srv.text('/?limit=1');
-  assert.match(html, /1 of 6/);
+  assert.match(html, /1 newest of 6/);
+  assert.match(html, /href="\/\?limit=6">All 6</);
+  assert.doesNotMatch(html, /before truncation/);
 });
 
 test('T7: the invalid-limit note appears in the rendered page', async () => {
@@ -281,4 +285,162 @@ test('T7: the rendered page never contains a fragment of conversation text', asy
   const html = await srv.text('/');
   assert.doesNotMatch(html, /Дивлюся тест/);
   assert.doesNotMatch(html, /unique constraint/);
+});
+
+test('T8: the journal head yields the generated title and the working directory, nothing else', () => {
+  const head = readSessionHead(join(fixtureProjectsDir, '-Users-demo-sources-checkout-api', 'aaaaaaaa-1111-4111-8111-111111111111.jsonl'));
+  assert.deepEqual(head, { title: 'Idempotency key test fix', cwd: '/Users/demo/sources/checkout-api' });
+});
+
+test('T8: a session without an ai-title record has a null title, and an unreadable path yields nulls', () => {
+  const head = readSessionHead(join(fixtureProjectsDir, '-Users-demo-sources-checkout-api', 'bbbbbbbb-2222-4222-8222-222222222222.jsonl'));
+  assert.equal(head.title, null);
+  assert.equal(head.cwd, '/Users/demo/sources/checkout-api');
+  assert.deepEqual(readSessionHead(join(fixtureProjectsDir, 'does-not-exist.jsonl')), { title: null, cwd: null });
+});
+
+test('T8: a project falls back to the derived path when the journal carries no cwd', () => {
+  assert.deepEqual(describeProject('-Users-demo-sources-checkout-api', '/Users/demo/sources/checkout-api'),
+    { name: 'checkout-api', path: '/Users/demo/sources/checkout-api', derived: false });
+  assert.deepEqual(describeProject('-Users-demo-sources-checkout-api', null),
+    { name: 'api', path: '/Users/demo/sources/checkout/api', derived: true });
+});
+
+test('T8: listSessions() enriches every shown session with title and project name and lists all projects', () => {
+  const result = withClaudeHome(fixtureHome, () => listSessions({ limit: 50 }));
+  assert.equal(result.sessions.length, 6);
+  const titled = result.sessions.find((s) => s.sessionId === 'eeeeeeee-5555-4555-8555-555555555555');
+  assert.equal(titled.title, 'Cart rewrite');
+  assert.equal(titled.projectName, 'web-shop');
+  assert.deepEqual(result.projects.map((p) => [p.name, p.count]), [['notes', 1], ['web-shop', 2], ['checkout-api', 3]]);
+  assert.equal(result.totalSessions, 6);
+});
+
+test('T8: a text query matches titles, project names and ids; a project filter narrows to one directory', () => {
+  const byTitle = withClaudeHome(fixtureHome, () => listSessions({ q: 'cart' }));
+  assert.deepEqual(byTitle.sessions.map((s) => s.sessionId), ['eeeeeeee-5555-4555-8555-555555555555']);
+  const byId = withClaudeHome(fixtureHome, () => listSessions({ q: 'bbbbbbbb' }));
+  assert.equal(byId.sessions.length, 1);
+  const byProject = withClaudeHome(fixtureHome, () => listSessions({ project: '-Users-demo-sources-web-shop' }));
+  assert.equal(byProject.sessions.length, 2);
+  assert.equal(byProject.totalFound, 2);
+  assert.equal(byProject.totalSessions, 6);
+});
+
+test('T8: groupByProject() keeps newest-first order and sums sizes per project', () => {
+  const { sessions } = withClaudeHome(fixtureHome, () => listSessions({ limit: 50 }));
+  const groups = groupByProject(sessions);
+  assert.deepEqual(groups.map((g) => [g.name, g.sessions.length]), [['notes', 1], ['web-shop', 2], ['checkout-api', 3]]);
+  assert.equal(groups[2].totalSize, groups[2].sessions.reduce((sum, s) => sum + s.size, 0));
+});
+
+test('T9: the dashboard renders the stat strip, a 30-column activity chart, projects and models over every session', async () => {
+  const html = await srv.text('/');
+  assert.match(html, /class="stats"/);
+  assert.match(html, /<span class="stat-value">6<\/span><span class="stat-label">(<svg[^>]*><use[^>]*><\/use><\/svg>)?sessions in total<\/span>/);
+  assert.match(html, /<script src="\/dashboard.js" defer><\/script>/);
+  assert.match(html, /data-tip="[^"]*checkout-api/, 'each column carries its per-project breakdown for the tooltip');
+  assert.equal((html.match(/<g class="col"/g) || []).length, 60, 'two charts, one column per day each');
+  assert.match(html, /data-chart="sessions"/);
+  assert.match(html, /data-chart="tokens"/);
+  assert.equal((html.match(/<svg class="spark"/g) || []).length, 3, 'one sparkline per project');
+  const week = await srv.text('/?days=7');
+  assert.equal((week.match(/<g class="col"/g) || []).length, 14, '?days=7 draws a week in both charts');
+  assert.match(week, /active in 7 days/);
+  const scoped = await srv.text('/?project=-Users-demo-notes');
+  assert.match(scoped, /<span class="stat-value">1<\/span><span class="stat-label">(<svg[^>]*><use[^>]*><\/use><\/svg>)?sessions in total<\/span>/, 'the project filter scopes the whole dashboard');
+  assert.match(scoped, /Showing <strong>notes<\/strong> only/);
+  assert.match(html, /Sessions per day/);
+  assert.match(html, /Projects <span class="dim">3<\/span><\/h2>/);
+  assert.ok(html.indexOf('models-panel') < html.indexOf('class="panel chart"'), 'models sit above the chart');
+  assert.match(html, /<use href="#i-tokens">/, 'stat labels carry sprite icons');
+  assert.match(html, /class="model-name">(<svg[^>]*><use[^>]*><\/use><\/svg>)?claude-opus-5</);
+  assert.match(html, /Recent sessions <span class="dim">/);
+  assert.doesNotMatch(html, /style="/, 'inline styles are blocked by the CSP');
+});
+
+test('T9: the six busiest projects get distinct color slots in rank order, the rest share the neutral mark', () => {
+  const projects = Array.from({ length: 8 }, (_, i) => ({ projectDirName: `-p${i}`, name: `p${i}`, count: 8 - i }));
+  const colors = assignColors(projects);
+  assert.deepEqual(Object.values(colors).slice(0, 6), [0, 1, 2, 3, 4, 5]);
+  assert.equal(colors['-p6'], null);
+  assert.equal(colors['-p7'], null);
+  const tie = assignColors([{ projectDirName: '-b', name: 'b', count: 1 }, { projectDirName: '-a', name: 'a', count: 1 }]);
+  assert.deepEqual(tie, { '-a': 0, '-b': 1 });
+});
+
+test('T9: dashboard aggregates come from the allowed fields only and dedupe repeated message ids', () => {
+  const stats = readSessionStats(join(fixtureProjectsDir, '-Users-demo-sources-checkout-api', 'aaaaaaaa-1111-4111-8111-111111111111.jsonl'), 1, 1);
+  assert.equal(stats.turns, 3, 'two records share one message id and count once');
+  assert.equal(stats.tokens.output, 240 + 610 + 95, "the duplicated message id contributes its 610 once");
+  assert.deepEqual(Object.keys(stats.models), ['claude-opus-5']);
+  assert.deepEqual(Object.keys(stats.days), ['2026-08-20']);
+});
+
+test('T9: the chart window ends today, or slides back to the latest activity when the last 30 days are empty', () => {
+  const inWindow = withClaudeHome(fixtureHome, () => listSessions({ now: Date.parse('2026-09-10T12:00:00Z') })).dashboard;
+  assert.equal(inWindow.windowSlid, false);
+  assert.equal(inWindow.period.sessions, 6);
+  assert.equal(inWindow.period.activeDays, 4);
+  const later = withClaudeHome(fixtureHome, () => listSessions({ now: Date.parse('2027-03-01T12:00:00Z') })).dashboard;
+  assert.equal(later.windowSlid, true);
+  assert.equal(later.windowEnd, '2026-08-23');
+  assert.equal(later.period.sessions, 6);
+});
+
+test('T10: a session can be given an own name, which replaces the journal title, is searchable, and can be cleared', async () => {
+  const id = 'bbbbbbbb-2222-4222-8222-222222222222';
+  const form = await srv.text(`/sessions/${id}/rename?back=%2F%3Flimit%3D10`);
+  assert.match(form, /Name this session/);
+  assert.match(form, /name="back" value="\/\?limit=10"/);
+  const saved = await srv.post(`/sessions/${id}/rename`, { label: '  Postgres   boot ', back: '/?limit=10' });
+  assert.equal(saved.status, 303);
+  assert.equal(saved.headers.get('location'), '/?limit=10');
+  assert.deepEqual(readLabels(), { [id]: 'Postgres boot' });
+  const page = await srv.text('/');
+  assert.match(page, /class="title named"[^>]*>Postgres boot</);
+  assert.doesNotMatch(page, new RegExp(`Untitled session</span><a class="rename-link" href="/sessions/${id}`));
+  const found = await srv.text('/?q=postgres');
+  assert.match(found, new RegExp(id));
+  const cleared = await srv.post(`/sessions/${id}/rename`, { label: 'x', clear: '1', back: '//evil' });
+  assert.equal(cleared.headers.get('location'), '/', 'an off-site back target falls back to the dashboard');
+  assert.deepEqual(readLabels(), {});
+});
+
+test('T10: renaming an unknown session is a 404, and the store never lives inside CLAUDE_HOME', async () => {
+  const res = await srv.get('/sessions/00000000-0000-4000-8000-000000000000/rename');
+  assert.equal(res.status, 404);
+  assert.ok(!labelsFile().startsWith(fixtureHome), 'labels must not be written into the agent home');
+  const before = readdirSync(fixtureHome, { recursive: true }).sort();
+  await srv.post('/sessions/aaaaaaaa-1111-4111-8111-111111111111/rename', { label: 'tmp' });
+  await srv.post('/sessions/aaaaaaaa-1111-4111-8111-111111111111/rename', { label: '' });
+  assert.deepEqual(readdirSync(fixtureHome, { recursive: true }).sort(), before);
+});
+
+test('T8: ?q and ?project filter the page, and an unmatched query renders a filtered empty state', async () => {
+  const byQuery = await srv.text('/?q=cart');
+  assert.match(byQuery, /eeeeeeee-5555-4555-8555-555555555555/);
+  assert.doesNotMatch(byQuery, /aaaaaaaa-1111-4111-8111-111111111111/);
+  const byProject = await srv.text('/?project=-Users-demo-notes');
+  assert.match(byProject, /ffffffff-6666-4666-8666-666666666666/);
+  assert.doesNotMatch(byProject, /dddddddd-4444-4444-8444-444444444444/);
+  const none = await srv.text('/?q=zzzz-no-such-session');
+  assert.match(none, /class="empty"/);
+  assert.match(none, /Show all sessions/);
+});
+
+test('T8: the listing reads only the journal head: a session whose title sits past the head cap stays untitled', () => {
+  const home = mkdtempSync(join(tmpdir(), 'session-index-t8-head-'));
+  try {
+    const project = join(home, 'projects', '-tmp-proj');
+    mkdirSync(project, { recursive: true });
+    const filler = JSON.stringify({ type: 'progress', pad: 'x'.repeat(1000) }) + '\n';
+    const late = JSON.stringify({ type: 'ai-title', aiTitle: 'Late title' }) + '\n';
+    writeFileSync(join(project, '55555555-5555-4555-8555-555555555555.jsonl'), filler.repeat(70) + late);
+    const result = withClaudeHome(home, () => listSessions({ limit: 50 }));
+    assert.equal(result.sessions[0].title, null);
+    assert.equal(result.sessions[0].projectDerived, true);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

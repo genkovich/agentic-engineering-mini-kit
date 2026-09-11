@@ -1,7 +1,7 @@
 ---
 status: current
 mode: current
-updated_at: "2026-09-08"
+updated_at: "2026-09-10"
 reflects_commit: "7ebfee8"
 # machine-readable keys — filled by survey from the explorer's findings; "" = unknown, NEVER guessed.
 language: "javascript (esm), node >=22"
@@ -60,7 +60,8 @@ C4Container
 | app | `server.js` | app / http | `server.js:9-24` | Express-застосунок, маршрути `GET /api/health` і `GET /`, статика |
 | sources registry | `lib/sources.js` | ports | `server.js:5` | `registerSource` / `getSource` / `listSources` над `Map` у замиканні (`lib/sources.js:10`) |
 | claude adapter | `lib/claude/index.js` | infra | `server.js:4` (імпорт заради реєстрації) | `claudeHome()`, `projectsDir()`; реєструє себе на імпорті (`lib/claude/index.js:14-18`) |
-| views | `views/layout.js` | ui | `server.js:6` | `esc`, `layout`, `empty`; нічого не імпортує (`views/AGENTS.md` §Залежності) |
+| views | `views/layout.js`, `views/session-index.js`, `views/rename.js` | ui | `server.js` (імпорти) | каркас, дашборд і форма назви; `views/AGENTS.md` |
+| store | `lib/store.js` | infra | `server.js` (імпорт) | єдине місце запису: `labels.json` у `AGENT_OPS_HOME`, атомарно через tmp + rename |
 | styles | `public/style.css` | ui | `server.js:11` | єдиний стиль, віддається `express.static` |
 | tests | `test/` | test | `npm run verify` | `*.test.js` ворота; `helpers.js` піднімає сервер, `oracle.js` рахує факти з диска |
 | scripts | `scripts/` | tooling | `package.json:12-15` | `pin-fixture-mtimes.mjs`, `demo.mjs`, `verify-hook.mjs` |
@@ -89,13 +90,13 @@ C4Container
 
 ## Frontend / UI foundation
 
-- **Компонентна бібліотека / дизайн-система:** власна, мінімальна. Весь шар це `views/layout.js` з трьома функціями: `esc`, `layout`, `empty` (`views/layout.js:3-37`, карта в `views/AGENTS.md`).
-- **Дизайн-токени:** CSS custom properties у `:root` — `public/style.css:1-11`: `--bg`, `--panel`, `--line`, `--text`, `--muted`, `--accent`, `--bad`, `--good`, `--warm`. Тема темна, одна.
-- **Підхід до стилів:** ванільний CSS, один файл, віддається `express.static` (`server.js:11`), підключається рядком `<link rel="stylesheet" href="/style.css">` у `layout()` (`views/layout.js:19`). Імпорту стилів у JS немає.
-- **Спільні примітиви:** `layout({ title, body, nav, head })` — каркас документа з `<header class="top">` і `<main>` (`views/layout.js:11-33`); `empty(message)` — порожній стан (`views/layout.js:35-36`); таблиця зі стилями `th/td`, hover і `class="num"` для чисел (`public/style.css:32-38`); шрифт `ui-monospace` (`public/style.css:17`).
-- **Стан / завантаження даних:** немає. Гідратації, клієнтського JS і збірки фронтенду немає; сторінка рендериться на сервері цілком.
-- **Найближчий UI-прецедент:** `GET /` (`server.js:17-24`) — рядок body з `<h1>`, `<p class="sub">` і `empty()`, загорнутий у `layout()` і відданий через `res.type('html').send(...)`.
-- **Обмеження:** CSP у `layout()` (`views/layout.js:17`) забороняє inline-стилі, inline-скрипти й зовнішні ресурси. Послаблювати її не можна без рішення людини (`AGENTS.md` §Межі, `.claude/rules/views.md`).
+- **Компонентна бібліотека / дизайн-система:** власна, в коді. Канон описує `docs/design-system.md` (`tool: code`, responsive-both). Шар це `views/layout.js` з `esc`, `layout`, `empty` (`views/layout.js:3-66`, карта в `views/AGENTS.md`) плюс сторінка `views/session-index.js`.
+- **Дизайн-токени:** CSS custom properties у `:root` — `public/style.css:3-58`: поверхні, текст, акцент `--accent` (петроль), статуси `--warn`/`--bad`/`--good`, мітки проєктів `--mark-0…5`, шрифти `--font-ui`/`--font-data`, розміри `--size-*`, відступи `--s1…--s7`, радіуси. Тема світла, одна.
+- **Підхід до стилів:** ванільний CSS, один файл, віддається `express.static` (`server.js:29`), підключається рядком `<link rel="stylesheet" href="/style.css">` у `layout()` (`views/layout.js:37`). Імпорту стилів у JS немає. Зовнішніх шрифтів немає: системні стеки.
+- **Спільні примітиви:** `layout({ title, body, nav, head, current, source, home })` — каркас із шапкою (бренд-знак, бейдж джерела, навігація) і футером (`views/layout.js:28-62`); `empty(message)` — порожній стан (`views/layout.js:64-66`); таблиця `.table-wrap` (`public/style.css:193-207`); сегментовані посилання `.segmented` (`public/style.css:158-173`); примітка `.note` (`public/style.css:176-182`); мітка проєкту `.mark` (`public/style.css:210-218`). Вузький екран через `@media (max-width: 720px)` (`public/style.css:221`).
+- **Стан / завантаження даних:** немає. Гідратації, клієнтського JS і збірки фронтенду немає; сторінка рендериться на сервері цілком, стан контролів живе в параметрах запиту.
+- **Найближчий UI-прецедент:** `GET /` (`server.js:35-51`) — `layout()` з `current`, `source` і `home`, body з `<h1>` і `renderSessionIndex()`, відданий через `res.type('html').send(...)`.
+- **Обмеження:** CSP у `layout()` (`views/layout.js:34`) забороняє inline-стилі, inline-скрипти й зовнішні ресурси. Послаблювати її не можна без рішення людини (`AGENTS.md` §Межі, `.claude/rules/views.md`).
 
 ## Where things live / closest precedents
 
