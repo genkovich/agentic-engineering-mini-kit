@@ -444,3 +444,10 @@ test('T8: the listing reads only the journal head: a session whose title sits pa
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('T9: an invalid ?days= falls back to the default window with a note', async () => {
+  const html = await srv.text('/?days=3650');
+  assert.match(html, /class="note"/);
+  assert.match(html, /Invalid.*days/i);
+  assert.equal((html.match(/<g class="col"/g) || []).length, 60, 'the fallback still draws the 30-day window');
+});

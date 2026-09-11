@@ -28,6 +28,22 @@ function parseLimit(rawLimit) {
   return { limit: n, invalidLimitNote: null };
 }
 
+const DEFAULT_DAYS = 30;
+
+// Same contract as parseLimit: a hand-typed ?days= that is not one of the offered periods
+// falls back to the default window and says so, instead of failing the request.
+function parseDays(raw) {
+  if (raw === undefined) return { days: DEFAULT_DAYS, invalidDaysNote: null };
+  const n = Number(raw);
+  if (!PERIOD_CHOICES.includes(n)) {
+    return {
+      days: DEFAULT_DAYS,
+      invalidDaysNote: `Invalid ?days=${raw}, showing ${DEFAULT_DAYS} days instead.`,
+    };
+  }
+  return { days: n, invalidDaysNote: null };
+}
+
 app.use(express.static(join(here, 'public')));
 app.use(express.urlencoded({ extended: false, limit: '4kb' }));
 
@@ -44,7 +60,7 @@ app.get('/', (req, res) => {
   const { limit, invalidLimitNote } = parseLimit(req.query.limit);
   const q = parseText(req.query.q, 100);
   const project = parseText(req.query.project, 300);
-  const days = PERIOD_CHOICES.includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  const { days, invalidDaysNote } = parseDays(req.query.days);
   const labels = readLabels();
   const result = listSessions({ limit, q, project, days, labels });
   res.type('html').send(layout({
@@ -64,6 +80,7 @@ ${renderSessionIndex(result.sessions, {
       totalSessions: result.totalSessions,
       dashboard: result.dashboard,
       invalidLimitNote,
+      invalidDaysNote,
       truncated: result.truncated,
       totalFound: result.totalFound,
       unreadableCount: result.unreadableCount,
