@@ -44,6 +44,7 @@ C4Container
     Container(registry, "lib/sources.js", "ESM module", "Reiestr dzherel; Map u zamykanni")
     Container(sessions, "lib/sessions.js", "ESM module", "Indeks sesii nad usima dzherelamy")
     Container(claude, "lib/claude/index.js", "ESM module", "Adapter Claude Code: claudeHome, projectsDir")
+    Container(codex, "lib/codex/index.js", "ESM module", "Adapter Codex CLI: codexHome, sessionsDir")
     ContainerDb(home, "CLAUDE_HOME", "Filesystem", "Domashnia teka ahenta z sesiiamy .jsonl; lyshe chytannia")
     Rel(dev, web, "HTTP GET na 127.0.0.1:4180")
     Rel(web, views, "layout(...) navkolo riadka body")
@@ -62,12 +63,14 @@ C4Container
 | sources registry | `lib/sources.js` | ports | `server.js` (імпорт) | контракт джерела: `registerSource` / `getSource` / `allSources` / `listSources` над `Map` у замиканні. Адаптер має дати `id`, `label`, `home`, `scan`, `readHead`, `describeProject`, `readStats`, `readTimeline`, `readExtras` |
 | sessions orchestration | `lib/sessions.js` | domain | `server.js`, `lib/api-routes.js` (імпорти) | індекс поверх усіх зареєстрованих джерел: `listSessions`, `getSession`, `buildDashboard`, `sortAndLimit`, `assignColors`, `groupByProject`. Про вендорів не знає, кожній сесії додає `source: {id, label}` |
 | claude adapter | `lib/claude/index.js` | infra | `server.js` (імпорт заради реєстрації) | `claudeHome()`, `projectsDir()`, скан і читання голови журналу; складає обʼєкт джерела з контракту й реєструє себе на імпорті |
+| codex adapter | `lib/codex/index.js` | infra | `server.js` (імпорт заради реєстрації) | `codexHome()`, `sessionsDir()`, скан `sessions/YYYY/MM/DD/rollout-*.jsonl`, статистика й хронологія з rollout-записів; проєкт виводить із `cwd` через `projectDirNameFor()` |
+| journal memo | `lib/journal-memo.js` | infra | `lib/claude/journal.js`, `lib/codex/index.js` | мемо за шляхом, розміром і mtime (`createStatsMemo`, `createTimelineMemo`) та `capTimeline` / `MAX_TIMELINE_EVENTS`; кожен адаптер тримає власні екземпляри |
 | views | `views/layout.js`, `views/session-index.js`, `views/rename.js` | ui | `server.js` (імпорти) | каркас, дашборд і форма назви; `views/AGENTS.md` |
 | store | `lib/store.js` | infra | `server.js` (імпорт) | єдине місце запису: `labels.json` у `AGENT_OPS_HOME`, атомарно через tmp + rename |
 | styles | `public/style.css` | ui | `server.js:11` | єдиний стиль, віддається `express.static` |
 | tests | `test/` | test | `npm run verify` | `*.test.js` ворота; `helpers.js` піднімає сервер, `oracle.js` рахує факти з диска |
 | scripts | `scripts/` | tooling | `package.json:12-15` | `pin-fixture-mtimes.mjs`, `demo.mjs`, `verify-hook.mjs` |
-| fixtures | `fixtures/claude-home/` | test data | `test/helpers.js:9` | синтетична домашня тека агента |
+| fixtures | `fixtures/claude-home/`, `fixtures/codex-home/` | test data | `test/helpers.js` | синтетичні домашні теки обох агентів |
 
 ## Conventions (cited — правила, під які має лягти нова фіча)
 
@@ -86,7 +89,8 @@ C4Container
 | Store | Engine | Accessed via | Notes |
 |---|---|---|---|
 | `CLAUDE_HOME` | файлова система | `lib/claude/index.js:6-12` (`claudeHome()`, `projectsDir()`), далі синхронний `node:fs` | Тільки читання. Дефолт `~/.claude`, override через env. Структура: `projects/<encoded-path>/<sessionId>.jsonl`; вкладені транскрипти сесіями не є (`CONTEXT.md` §Glossary) |
-| `fixtures/claude-home/` | файлова система | `test/helpers.js:9`, `scripts/demo.mjs` | Синтетичні сесії для тестів і `npm run demo`; єдина тека, яку репо змінює (`scripts/pin-fixture-mtimes.mjs`) |
+| `CODEX_HOME` | файлова система | `lib/codex/index.js` (`codexHome()`, `sessionsDir()`), далі синхронний `node:fs` | Тільки читання. Дефолт `~/.codex`, override через env. Структура: `sessions/YYYY/MM/DD/rollout-<timestamp>-<uuid>.jsonl`, кожен рядок `{timestamp, type, payload}` |
+| `fixtures/claude-home/`, `fixtures/codex-home/` | файлова система | `test/helpers.js`, `scripts/demo.mjs` | Синтетичні сесії для тестів і `npm run demo`; єдині теки, які репо змінює (`scripts/pin-fixture-mtimes.mjs` вирівнює mtime в обох) |
 
 Реляційної бази, кешу й черг немає.
 
@@ -102,7 +106,7 @@ C4Container
 
 ## Where things live / closest precedents
 
-- Нове **джерело** (другий агент) → `lib/<vendor>/index.js`, за зразком `lib/claude/index.js:14-18`, плюс рядок імпорту в `server.js:4`.
+- Нове **джерело** (третій агент) → `lib/<vendor>/index.js`, за зразком `lib/codex/index.js`, плюс рядок імпорту в `server.js` поряд із наявними двома.
 - Новий **JSON-маршрут** → `server.js`, за зразком `GET /api/health` (`server.js:13-15`); тест за зразком `test/skeleton.test.js:8-13`.
 - Нова **сторінка** → рядок body в `server.js` + `layout()`, за зразком `GET /` (`server.js:17-24`); значення через `esc()`, порожній стан через `empty()`. Складніша сторінка виносить свою функцію в окремий файл `views/<page>.js` (`views/AGENTS.md` §Залежності: шлях той самий, рядок → `layout()` → `res.send()`).
 - Новий **тест** → `test/<name>.test.js`, імпорт `test/helpers.js` першим, факти з диска через `test/oracle.js` (`test/oracle.js:9-24`).

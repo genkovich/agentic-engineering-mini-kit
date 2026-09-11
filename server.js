@@ -1,10 +1,12 @@
 import express from 'express';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// Importing the Claude adapter is what registers it: registerSource() runs on import, and
-// lib/sessions.js only ever sees what the registry holds. Keep this import even when nothing
-// but claudeHome() is used from it, or the dashboard would come up with no sources at all.
+// Importing an adapter is what registers it: registerSource() runs on import, and
+// lib/sessions.js only ever sees what the registry holds. Keep these imports even when nothing
+// but claudeHome() is used from them, or the dashboard would come up with no sources at all.
+// Import order is registration order, which is the order the badge and the Source switch list.
 import { claudeHome } from './lib/claude/index.js';
+import './lib/codex/index.js';
 import { listSessions, getSession, PERIOD_CHOICES } from './lib/sessions.js';
 import { allSources } from './lib/sources.js';
 import { layout } from './views/layout.js';
@@ -266,6 +268,8 @@ app.post('/sessions/:id/rename', editSubmit);
 const PORT = Number(process.env.PORT || 4180);
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   app.listen(PORT, '127.0.0.1', () => {
-    console.log(`agent-ops on http://127.0.0.1:${PORT}  (CLAUDE_HOME=${claudeHome()})`);
+    // Name every home it will read, so a misconfigured run is visible in the first line of output.
+    const homes = sourceHomes().map((s) => `${s.label}=${s.home}`).join(', ');
+    console.log(`agent-ops on http://127.0.0.1:${PORT}  (${homes})`);
   });
 }

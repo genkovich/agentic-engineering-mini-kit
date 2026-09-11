@@ -163,7 +163,9 @@ test('T5: an unreadable projects dir yields an empty list, a count, and never th
       t.skip('chmod has no effect on this platform/user (likely running as root)');
       return;
     }
-    const result = withClaudeHome(home, () => listSessions({ limit: 50 }));
+    // Scoped to Claude so this stays a statement about Claude's scan: the Codex fixtures are
+    // readable and would otherwise fill the list this test asserts is empty.
+    const result = withClaudeHome(home, () => listSessions({ limit: 50, source: 'claude' }));
     assert.deepEqual(result.sessions, []);
     assert.equal(result.unreadableCount, 1);
   } finally {
@@ -189,7 +191,9 @@ test('T5: one unreadable project subdir does not block sessions from readable si
       t.skip('chmod has no effect on this platform/user (likely running as root)');
       return;
     }
-    const result = withClaudeHome(home, () => listSessions({ limit: 50 }));
+    // Scoped to Claude for the same reason as the test above: the assertion is about this
+    // adapter's siblings, not about how many sources the dashboard happens to have.
+    const result = withClaudeHome(home, () => listSessions({ limit: 50, source: 'claude' }));
     assert.equal(result.sessions.length, 1);
     assert.equal(result.sessions[0].sessionId, '44444444-4444-4444-8444-444444444444');
     assert.equal(result.unreadableCount, 1);
@@ -259,7 +263,9 @@ test('T7: an empty CLAUDE_HOME renders the empty state', async () => {
   try {
     mkdirSync(join(home, 'projects'), { recursive: true });
     const local = await startServer();
-    const html = await local.text('/');
+    // Scoped to Claude: the empty state under test is this source's, and the Codex fixtures are
+    // still readable, so an unscoped page would rightly show their rows instead.
+    const html = await local.text('/?source=claude');
     await local.close();
     assert.match(html, /class="empty"/);
   } finally {
@@ -269,9 +275,10 @@ test('T7: an empty CLAUDE_HOME renders the empty state', async () => {
 });
 
 test('T7: a truncated list says so in the heading and offers an All link, without an amber note', async () => {
+  // The totals are the two fixture homes together: six Claude sessions and three Codex ones.
   const html = await srv.text('/?limit=1');
-  assert.match(html, /1 newest of 6/);
-  assert.match(html, /href="\/\?limit=6">All 6</);
+  assert.match(html, /1 newest of 9/);
+  assert.match(html, /href="\/\?limit=9">All 9</);
   assert.doesNotMatch(html, /before truncation/);
 });
 
@@ -307,13 +314,18 @@ test('T8: a project falls back to the derived path when the journal carries no c
 });
 
 test('T8: listSessions() enriches every shown session with title and project name and lists all projects', () => {
-  const result = withClaudeHome(fixtureHome, () => listSessions({ limit: 50 }));
+  // The enrichment assertions are about the Claude adapter, so the list is scoped to it. The two
+  // aggregates below are not: `projects` and `totalSessions` are collected over every registered
+  // source before any scope (lib/sessions.js), so they describe both fixture homes — four
+  // projects, and checkout-api merged across the two sources by its shared working directory.
+  const result = withClaudeHome(fixtureHome, () => listSessions({ limit: 50, source: 'claude' }));
   assert.equal(result.sessions.length, 6);
   const titled = result.sessions.find((s) => s.sessionId === 'eeeeeeee-5555-4555-8555-555555555555');
   assert.equal(titled.title, 'Cart rewrite');
   assert.equal(titled.projectName, 'web-shop');
-  assert.deepEqual(result.projects.map((p) => [p.name, p.count]), [['notes', 1], ['web-shop', 2], ['checkout-api', 3]]);
-  assert.equal(result.totalSessions, 6);
+  assert.deepEqual(result.projects.map((p) => [p.name, p.count]),
+    [['cli-tools', 1], ['notes', 1], ['web-shop', 2], ['checkout-api', 5]]);
+  assert.equal(result.totalSessions, 9);
 });
 
 test('T8: a text query matches titles, project names and ids; a project filter narrows to one directory', () => {
@@ -324,26 +336,30 @@ test('T8: a text query matches titles, project names and ids; a project filter n
   const byProject = withClaudeHome(fixtureHome, () => listSessions({ project: '-Users-demo-sources-web-shop' }));
   assert.equal(byProject.sessions.length, 2);
   assert.equal(byProject.totalFound, 2);
-  assert.equal(byProject.totalSessions, 6);
+  // `totalSessions` counts every source before any scope, so it is the two fixture homes together.
+  assert.equal(byProject.totalSessions, 9);
 });
 
 test('T8: groupByProject() keeps newest-first order and sums sizes per project', () => {
-  const { sessions } = withClaudeHome(fixtureHome, () => listSessions({ limit: 50 }));
+  // Scoped to Claude: the grouping rule is what is under test, not how many sources exist.
+  const { sessions } = withClaudeHome(fixtureHome, () => listSessions({ limit: 50, source: 'claude' }));
   const groups = groupByProject(sessions);
   assert.deepEqual(groups.map((g) => [g.name, g.sessions.length]), [['notes', 1], ['web-shop', 2], ['checkout-api', 3]]);
   assert.equal(groups[2].totalSize, groups[2].sessions.reduce((sum, s) => sum + s.size, 0));
 });
 
 test('T9: the dashboard renders the stat strip, a 30-column activity chart, projects and models over every session', async () => {
+  // Totals here are deliberately unscoped: this test is about the dashboard summing everything
+  // it read, which is now both fixture homes — nine sessions across four projects.
   const html = await srv.text('/');
   assert.match(html, /class="stats"/);
-  assert.match(html, /<span class="stat-value">6<\/span><span class="stat-label">(<svg[^>]*><use[^>]*><\/use><\/svg>)?sessions in total<\/span>/);
+  assert.match(html, /<span class="stat-value">9<\/span><span class="stat-label">(<svg[^>]*><use[^>]*><\/use><\/svg>)?sessions in total<\/span>/);
   assert.match(html, /<script src="\/dashboard.js" defer><\/script>/);
   assert.match(html, /data-tip="[^"]*checkout-api/, 'each column carries its per-project breakdown for the tooltip');
   assert.equal((html.match(/<g class="col"/g) || []).length, 60, 'two charts, one column per day each');
   assert.match(html, /data-chart="sessions"/);
   assert.match(html, /data-chart="tokens"/);
-  assert.equal((html.match(/<svg class="spark"/g) || []).length, 3, 'one sparkline per project');
+  assert.equal((html.match(/<svg class="spark"/g) || []).length, 4, 'one sparkline per project');
   const week = await srv.text('/?days=7');
   assert.equal((week.match(/<g class="col"/g) || []).length, 14, '?days=7 draws a week in both charts');
   assert.match(week, /active in 7 days/);
@@ -351,7 +367,7 @@ test('T9: the dashboard renders the stat strip, a 30-column activity chart, proj
   assert.match(scoped, /<span class="stat-value">1<\/span><span class="stat-label">(<svg[^>]*><use[^>]*><\/use><\/svg>)?sessions in total<\/span>/, 'the project filter scopes the whole dashboard');
   assert.match(scoped, /Showing <strong>notes<\/strong> only/);
   assert.match(html, /Sessions per day/);
-  assert.match(html, /Projects <span class="dim">3<\/span><\/h2>/);
+  assert.match(html, /Projects <span class="dim">4<\/span><\/h2>/);
   assert.ok(html.indexOf('models-panel') < html.indexOf('class="panel chart"'), 'models sit above the chart');
   assert.match(html, /<use href="#i-tokens">/, 'stat labels carry sprite icons');
   assert.match(html, /class="model-name">(<svg[^>]*><use[^>]*><\/use><\/svg>)?claude-opus-5</);
@@ -378,11 +394,13 @@ test('T9: dashboard aggregates come from the allowed fields only and dedupe repe
 });
 
 test('T9: the chart window ends today, or slides back to the latest activity when the last 30 days are empty', () => {
-  const inWindow = withClaudeHome(fixtureHome, () => listSessions({ now: Date.parse('2026-09-10T12:00:00Z') })).dashboard;
+  // Scoped to Claude: the window rule is what is under test, and the Codex fixtures fall inside
+  // the same 30 days, which would change the counts without changing the rule.
+  const inWindow = withClaudeHome(fixtureHome, () => listSessions({ now: Date.parse('2026-09-10T12:00:00Z'), source: 'claude' })).dashboard;
   assert.equal(inWindow.windowSlid, false);
   assert.equal(inWindow.period.sessions, 6);
   assert.equal(inWindow.period.activeDays, 4);
-  const later = withClaudeHome(fixtureHome, () => listSessions({ now: Date.parse('2027-03-01T12:00:00Z') })).dashboard;
+  const later = withClaudeHome(fixtureHome, () => listSessions({ now: Date.parse('2027-03-01T12:00:00Z'), source: 'claude' })).dashboard;
   assert.equal(later.windowSlid, true);
   assert.equal(later.windowEnd, '2026-08-23');
   assert.equal(later.period.sessions, 6);

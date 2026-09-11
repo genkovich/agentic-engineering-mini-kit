@@ -41,6 +41,31 @@ updated_at: "2026-09-11"
 
 Заборонено читати й показувати будь-яке поле з текстом: `text`, `input`, `content` як рядок, `thinking`, а також вміст `tool_result` поза `is_error`.
 
+### Codex CLI (крок 5)
+
+Codex тримає сесію як `sessions/YYYY/MM/DD/rollout-<timestamp>-<uuid>.jsonl`, де кожен рядок це
+`{timestamp, type, payload}`, а `type` це назва варіанта `RolloutItem` у snake_case. Перелік
+понять той самий, що для Claude, лише назви полів інші. Дозволено читати:
+
+- запис: `timestamp`, `type`;
+- `session_meta.payload`: `id`, `cwd`;
+- `turn_context.payload`: `model`, `cwd`;
+- `response_item.payload`: `type`, а далі лише
+  - для `function_call` і `custom_tool_call`: `name` і `call_id`;
+  - для `local_shell_call`: `call_id` (назва інструмента завжди `shell`);
+  - для `function_call_output` і `custom_tool_call_output`: `call_id` і булів прапорець
+    `output.success`, якщо запис його несе; якщо ні, результат вважається успішним;
+- `event_msg.payload`: `type`, а для `token_count` лише числа під
+  `payload.info.last_token_usage` (`input_tokens`, `cached_input_tokens`,
+  `cache_write_input_tokens`, `output_tokens`);
+- `compacted`: лише сам факт запису.
+
+Заборонено читати `content`, `arguments`, `input`, тіло `output`, `message`, `text`,
+`instructions`, `summary` і будь-які міркування (`reasoning`). Заголовка сесії Codex не генерує,
+тому `title` завжди `null`: єдиний текст, який міг би за нього правити, це вміст розмови.
+
+Адаптер деструктурує лише перелічені ключі й ніколи не лишає в себе сам запис чи `payload`.
+
 Запис у `CLAUDE_HOME` заборонений повністю; власні дані дашборду живуть окремо (див. [[0002-dashboard-store-outside-agent-home]]).
 
 ## Consequences
@@ -56,6 +81,7 @@ updated_at: "2026-09-11"
 
 **Neutral**
 - Перелік прив'язаний до формату Claude Code; інші джерела мапують свої поля на ті самі поняття.
+- Codex отримав власний перелік у цьому ж рішенні, а не окреме ADR: поняття ті самі, відрізняються лише назви полів.
 
 ## Links
 

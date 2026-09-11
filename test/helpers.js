@@ -6,9 +6,12 @@ import { tmpdir } from 'node:os';
 
 export const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const fixtureHome = join(repoRoot, 'fixtures', 'claude-home');
+export const codexFixtureHome = join(repoRoot, 'fixtures', 'codex-home');
 
-// Tests must never inherit a caller's personal Claude directory.
+// Tests must never inherit a caller's personal agent directories — there may well be a real
+// ~/.claude and a real ~/.codex on this machine, and neither may ever be read by a test.
 process.env.CLAUDE_HOME = fixtureHome;
+process.env.CODEX_HOME = codexFixtureHome;
 // The dashboard's own store (session labels) goes to a throwaway directory per test run.
 export const storeHome = mkdtempSync(join(tmpdir(), 'agent-ops-store-'));
 process.env.AGENT_OPS_HOME = storeHome;

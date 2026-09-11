@@ -17,8 +17,11 @@ const NOW = Date.parse('2026-09-10T12:00:00Z');
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const F = 'ffffffff-6666-4666-8666-666666666666';
 
-function overviewOf({ days = 30, project = '' } = {}) {
-  const result = listSessions({ limit: 1000, project, days, now: NOW });
+// Scoped to the Claude source: every window, total and cost asserted below describes the Claude
+// fixtures, and the Codex fixtures sit inside the same window with models the price table does
+// not know, which would move the numbers without testing anything new about the overview.
+function overviewOf({ days = 30, project = '', source = 'claude' } = {}) {
+  const result = listSessions({ limit: 1000, project, days, now: NOW, source });
   return { overview: buildOverview(result.sessions, result.projects, { now: NOW, days }), result };
 }
 
@@ -141,8 +144,9 @@ test('T18: the overview aggregates every scoped session, not the newest ?limit o
   const previous = process.env.CLAUDE_HOME;
   try {
     process.env.CLAUDE_HOME = home;
-    // The list is cut to one row; the aggregates must still see all three journals.
-    const result = listSessions({ limit: 1, days: 30, now: NOW });
+    // The list is cut to one row; the aggregates must still see all three journals. Scoped to
+    // Claude, since the three journals under test are the ones this temporary home holds.
+    const result = listSessions({ limit: 1, days: 30, now: NOW, source: 'claude' });
     assert.equal(result.sessions.length, 1, 'the list itself is limited');
     assert.equal(result.scoped.length, 3, 'scoped carries every session in the project scope');
     assert.equal(buildOverview(result.scoped, result.projects, { now: NOW, days: 30 }).totals.sessions, 3);
