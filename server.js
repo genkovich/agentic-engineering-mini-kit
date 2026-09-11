@@ -119,13 +119,14 @@ const CHART_SCRIPT = '<script src="/dashboard.js" defer></script>';
 
 // The period overview. It reuses the index's scan (the sessions come out of listSessions with
 // their stats already read and memoised) and hands them to lib/analytics.js, which knows nothing
-// about where they came from. `limit: 0` would hide the list, so the scan is asked for every
-// session and only the aggregates are used.
+// about where they came from. It aggregates over `result.scoped`, every session in the project
+// scope, never over `result.sessions`, which is cut to the list's `limit` — a page of sums must
+// describe all of them or say it does not.
 app.get('/overview', (req, res) => {
   const { days, invalidDaysNote } = parseDaysFrom(req.query.days, PERIOD_CHOICES_OVERVIEW);
   const project = parseText(req.query.project, 300);
-  const result = listSessions({ limit: MAX_LIMIT, project, days, labels: readLabels() });
-  const overview = buildOverview(result.sessions, result.projects, { days });
+  const result = listSessions({ limit: 1, project, days, labels: readLabels() });
+  const overview = buildOverview(result.scoped, result.projects, { days });
   const state = { days, project, projectName: result.projects.find((p) => p.projectDirName === project)?.name ?? project };
   res.type('html').send(layout({
     title: 'agent-ops',

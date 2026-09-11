@@ -509,7 +509,11 @@ td.when { white-space: nowrap; }
 /* ---- overview: deltas, weekday rhythm, the three-table grid ---------------------- */
 
 /* The change against the previous period, under a stat tile's label. Direction is carried by
-   the sign and the color together, never by color alone. */
+   the sign and the color together, never by color alone.
+
+   `.delta-up` always means the change is welcome and `.delta-down` that it is not — the class
+   is about the verdict, not about which way the number moved. Rising spend is therefore
+   `.delta-down`, so a bigger bill is never painted green. */
 .delta { font-size: var(--size-sm); font-variant-numeric: tabular-nums; color: var(--muted); margin-top: var(--s1); }
 .delta-up { color: var(--good); }
 .delta-down { color: var(--bad); }

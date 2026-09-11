@@ -31,6 +31,10 @@ const labelled = (buckets) => buckets.map((b) => ({ ...b, label: shortDay(b.labe
 
 // "+12%" / "−8%" / "—". A period with nothing before it has no percentage to show, and an
 // invented "+100%" would be a claim the data does not support.
+//
+// The class says whether the change is welcome, not which way the number moved: `.delta-up` is
+// always the good direction. For spend that is downwards, so a rising bill is never painted
+// green — pass `{ goodIsUp: false }`.
 function deltaSpan(d, { goodIsUp = true } = {}) {
   if (!d || d.pct === null) {
     return '<span class="delta" title="Nothing in the previous period to compare against">—</span>';
@@ -46,8 +50,8 @@ function deltaSpan(d, { goodIsUp = true } = {}) {
 // The same `.stat` tile the dashboard uses, with the change against the previous period sitting
 // under the label. Built here rather than patched into stat()'s string, so the markup is one
 // readable template instead of a substitution that breaks when the tile changes.
-function statWithDelta(iconName, value, label, title, d) {
-  return `<div class="stat" title="${esc(title)}"><span class="stat-value">${esc(value)}</span><span class="stat-label">${icon(iconName)}${esc(label)}</span>${deltaSpan(d)}</div>`;
+function statWithDelta(iconName, value, label, title, d, options) {
+  return `<div class="stat" title="${esc(title)}"><span class="stat-value">${esc(value)}</span><span class="stat-label">${icon(iconName)}${esc(label)}</span>${deltaSpan(d, options)}</div>`;
 }
 
 function buildStrip(overview, asOf) {
@@ -59,7 +63,7 @@ function buildStrip(overview, asOf) {
 ${statWithDelta('sessions', String(t.sessions), 'active sessions', was(p.sessions), overview.delta.sessions)}
 ${statWithDelta('turns', String(t.turns), 'assistant turns', was(p.turns), overview.delta.turns)}
 ${statWithDelta('tokens', humanCount(t.tokens.output), 'output tokens', was(`${p.tokens.output} output tokens`), overview.delta.output)}
-${statWithDelta('dollar', `≈ ${formatUsd(t.cost.usd)}`, 'est. cost', `${was(`≈ ${formatUsd(p.cost.usd)}`)}. Estimate from the static price table, prices as of ${asOf}; models without a price are excluded.`, overview.delta.cost)}
+${statWithDelta('dollar', `≈ ${formatUsd(t.cost.usd)}`, 'est. cost', `${was(`≈ ${formatUsd(p.cost.usd)}`)}. Estimate from the static price table, prices as of ${asOf}; models without a price are excluded.`, overview.delta.cost, { goodIsUp: false })}
 ${stat('calendar', String(t.activeDays), 'active days', `Days with at least one assistant turn, ${shortDay(overview.window.start)} to ${shortDay(overview.window.end)}`)}
 </div>`;
 }
@@ -240,6 +244,7 @@ function buildTop(heading, iconName, rows, valueHeading, valueCell) {
 ${body}
 </tbody>
 </table></div>
+<p class="dim">Whole-session figures for sessions active in this period; the totals above count only this period's days.</p>
 </section>`;
 }
 

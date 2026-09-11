@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listSessions, readSessionStats, statsMemoSize, sortAndLimit } from '../lib/claude/index.js';
 import { buildOverview, PERIOD_CHOICES_OVERVIEW } from '../lib/analytics.js';
+import { renderOverview } from '../views/overview.js';
 import { fixtureHome, startServer } from './helpers.js';
 
 // Mid-September, about three weeks after the newest fixture session: inside a 30-day window,
@@ -123,6 +124,97 @@ test('T20: /overview marks itself current, charts a year in 52 columns and scope
   assert.equal(overview.totals.sessions, 1);
   assert.equal(overview.projects.length, 1);
   assert.equal(overview.projects[0].projectDirName, '-Users-demo-notes');
+});
+
+test('T18: the overview aggregates every scoped session, not the newest ?limit of them', () => {
+  const home = mkdtempSync(join(tmpdir(), 'agent-ops-scope-'));
+  const projects = join(home, 'projects', '-tmp-scope');
+  mkdirSync(projects, { recursive: true });
+  const journal = (id) => JSON.stringify({
+    type: 'assistant', timestamp: '2026-09-01T10:00:00Z',
+    message: { id: `msg_${id}`, model: 'claude-opus-5', usage: { input_tokens: 10, output_tokens: 10 } },
+  });
+  for (const id of ['one', 'two', 'three']) {
+    writeFileSync(join(projects, `${id}.jsonl`), `${journal(id)}\n`);
+  }
+
+  const previous = process.env.CLAUDE_HOME;
+  try {
+    process.env.CLAUDE_HOME = home;
+    // The list is cut to one row; the aggregates must still see all three journals.
+    const result = listSessions({ limit: 1, days: 30, now: NOW });
+    assert.equal(result.sessions.length, 1, 'the list itself is limited');
+    assert.equal(result.scoped.length, 3, 'scoped carries every session in the project scope');
+    assert.equal(buildOverview(result.scoped, result.projects, { now: NOW, days: 30 }).totals.sessions, 3);
+    // The bug this guards against: aggregating over the truncated list instead.
+    assert.equal(buildOverview(result.sessions, result.projects, { now: NOW, days: 30 }).totals.sessions, 1);
+    assert.equal(result.dashboard.total.sessions, 3, 'the dashboard was already counting all three');
+  } finally {
+    process.env.CLAUDE_HOME = previous ?? fixtureHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// Two synthetic sessions, one in each 30-day window ending at NOW. buildOverview takes plain
+// records, so this needs no disk and no server.
+// NOW is 2026-09-10: the window is 12 Aug — 10 Sep, the one before it 13 Jul — 11 Aug.
+function twoPeriodSessions(thisPeriodOutput, previousPeriodOutput) {
+  const session = (id, day, output) => ({
+    sessionId: id,
+    projectDirName: '-tmp-delta',
+    projectName: 'delta',
+    projectPath: '/tmp/delta',
+    projectDerived: false,
+    name: id,
+    mtimeMs: Date.parse(`${day}T10:00:00Z`),
+    stats: {
+      turns: 1,
+      tokens: { input: 0, output, cacheRead: 0, cacheWrite: 0 },
+      models: { 'claude-opus-5': { turns: 1, tokens: { input: 0, output, cacheRead: 0, cacheWrite: 0 } } },
+      days: { [day]: { turns: 1, tokens: { input: 0, output, cacheRead: 0, cacheWrite: 0 },
+        byModel: { 'claude-opus-5': { turns: 1, tokens: { input: 0, output, cacheRead: 0, cacheWrite: 0 } } } } },
+      firstTs: Date.parse(`${day}T10:00:00Z`),
+      lastTs: Date.parse(`${day}T10:05:00Z`),
+      prompts: 1,
+      tools: {},
+      compacts: { count: 0, preTokens: 0, postTokens: 0 },
+    },
+  });
+  return [
+    session('in-window', '2026-09-01', thisPeriodOutput),
+    session('before', '2026-07-20', previousPeriodOutput),
+  ];
+}
+
+test('T20: a rising bill is marked as a regression, not as an improvement', () => {
+  const overview = buildOverview(twoPeriodSessions(2000, 1000), [], { now: NOW, days: 30 });
+  assert.ok(overview.delta.cost.pct > 0, 'this period should cost more than the one before');
+  assert.ok(overview.delta.turns.pct === 0, 'turns are unchanged between the two periods');
+
+  const html = renderOverview({ overview, state: { days: 30 }, asOf: '2026-09-11' });
+  const tile = html.split('<div class="stat"').find((chunk) => chunk.includes('est. cost'));
+  assert.ok(tile, 'the overview should carry an est. cost tile');
+  // `.delta-up` is reserved for welcome changes; spending more is not one.
+  assert.doesNotMatch(tile, /delta-up/);
+  assert.match(tile, /class="delta delta-down">\+100%<\/span>/);
+
+  // The activity tiles keep the plain convention: more turns is the up direction.
+  const turns = html.split('<div class="stat"').find((chunk) => chunk.includes('assistant turns'));
+  assert.match(turns, /class="delta">0%<\/span>/);
+});
+
+test('T20: a falling bill is the welcome direction', () => {
+  const overview = buildOverview(twoPeriodSessions(1000, 2000), [], { now: NOW, days: 30 });
+  assert.ok(overview.delta.cost.pct < 0);
+  const html = renderOverview({ overview, state: { days: 30 }, asOf: '2026-09-11' });
+  const tile = html.split('<div class="stat"').find((chunk) => chunk.includes('est. cost'));
+  assert.match(tile, /class="delta delta-up">−50%<\/span>/);
+});
+
+test('T19: both top tables say their figures cover the whole session', async () => {
+  const html = await server.text('/overview');
+  const captions = html.match(/Whole-session figures for sessions active in this period/g) ?? [];
+  assert.equal(captions.length, 2, 'the caption belongs under both top tables');
 });
 
 test('T21: the dashboard carries a labelled cost tile and the three orderings', async () => {
