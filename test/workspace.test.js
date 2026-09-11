@@ -5,7 +5,7 @@
 // test/helpers.js sets per run, and the two store tests move it again so they start from empty.
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startServer, fixtureHome } from './helpers.js';
@@ -63,6 +63,13 @@ test('T22: a corrupt store reads as empty, an emptied entry is removed, and the 
   withStoreHome((home) => {
     writeFileSync(sessionsFile(), '{ this is not json');
     assert.deepEqual(readStore(), {}, 'a corrupt file is an empty store, not a crash');
+
+    // The damaged store must not fall back to the legacy file: those names are older than the
+    // entry that got damaged, and the next write would persist them over tags, notes and stars
+    // that were damaged rather than deleted.
+    writeFileSync(labelsFile(), JSON.stringify({ [SESSION_A]: 'Stale legacy name' }) + '\n');
+    assert.deepEqual(readStore(), {}, 'a corrupt sessions.json never resurrects labels.json');
+    rmSync(labelsFile());
 
     updateSession(SESSION_A, { label: 'Kept', note: 'why this matters', starred: true });
     assert.deepEqual(readStore()[SESSION_A], { label: 'Kept', note: 'why this matters', starred: true });
@@ -183,18 +190,29 @@ test('T24: ?tag= and ?starred=1 narrow the list on the page and in the API, and 
 
 /* ---- T25: the JSON API ------------------------------------------------------------------- */
 
-// Walks every key in a parsed JSON tree. The API's field list is a closed decision, so the test
-// that guards it has to look at the whole document, not at the fields it expects.
+// Walks every key in a parsed JSON tree, carrying the path to it. The API's field list is a
+// closed decision, so the test that guards it has to look at the whole document, not at the
+// fields it expects — and the one legitimate `input` has to be exempted by where it is, not by
+// what its value happens to look like.
 function walkKeys(value, visit, path = '$') {
   if (Array.isArray(value)) {
     value.forEach((item, i) => walkKeys(item, visit, `${path}[${i}]`));
   } else if (value && typeof value === 'object') {
     for (const [key, child] of Object.entries(value)) {
-      visit(key, child, `${path}.${key}`);
+      visit(key, child, `${path}.${key}`, value);
       walkKeys(child, visit, `${path}.${key}`);
     }
   }
 }
+
+// Words that name a message body, a tool's arguments or a model's reasoning. None of them is a
+// field the journal reader is allowed to open, so none may appear as a key anywhere.
+const FORBIDDEN_KEYS = ['input', 'content', 'text', 'thinking', 'command', 'prompt'];
+// The single exemption: a token split. Every object that may hold an `input` key sits under a
+// key named `tokens` (the session, per-model and per-day splits) or `tokensByType` (the session
+// page's analytics), and it must carry exactly these four counters and nothing else.
+const TOKEN_KEYS = ['cacheRead', 'cacheWrite', 'input', 'output'];
+const IS_TOKENS = /(^|\.)(tokens|tokensByType)$/;
 
 test('T25: the API answers the documented shapes and a JSON 404', async () => {
   const list = await srv.get('/api/sessions?limit=2');
@@ -241,15 +259,23 @@ test('T25: no conversation text and no message-body key reaches the API', async 
   assert.ok(!text.includes('Дивлюся тест'), 'a prompt from the journal never reaches the API');
   assert.ok(!text.includes('npm test -- idempotency'), 'a tool command never reaches the API');
 
-  const forbidden = new Set(['content', 'text', 'thinking']);
   const offenders = [];
-  walkKeys(JSON.parse(text), (key, child, path) => {
-    if (forbidden.has(key)) offenders.push(path);
-    // `input` is a legitimate token count (`tokens.input`); `input` carrying anything but a
-    // number would be a tool call's arguments, which is message content by another name.
-    if (key === 'input' && typeof child !== 'number') offenders.push(path);
+  const tokenObjects = [];
+  walkKeys(JSON.parse(text), (key, child, path, parent) => {
+    const parentPath = path.slice(0, path.length - key.length - 1);
+    const exempt = IS_TOKENS.test(parentPath);
+    if (exempt) tokenObjects.push([parentPath, parent]);
+    if (FORBIDDEN_KEYS.includes(key) && !exempt) offenders.push(path);
   });
-  assert.deepEqual(offenders, [], 'no message-body key anywhere in the response tree');
+  assert.deepEqual(offenders, [], 'no message-body, tool-argument or reasoning key in the tree');
+
+  // The exemption is only sound while a `tokens` object really is four counters. Assert that for
+  // every one of them, so a field smuggled into a tokens object cannot ride the exemption.
+  assert.ok(tokenObjects.length > 0, 'the response does carry token splits, so the walk saw them');
+  for (const [path, obj] of tokenObjects) {
+    assert.deepEqual(Object.keys(obj).sort(), TOKEN_KEYS, `${path} is a plain token split`);
+    for (const value of Object.values(obj)) assert.equal(typeof value, 'number');
+  }
 });
 
 /* ---- T26: CSV ---------------------------------------------------------------------------- */
@@ -298,8 +324,23 @@ test('T26: /overview.csv downloads an allow-listed table and refuses anything el
   assert.match(page, /<a href="\/api\/overview\?">JSON<\/a>/);
 });
 
-test('T26: a fixture directory is never written to by any of this', () => {
+test('T26: editing a session writes to the dashboard store and never to the agent home', async () => {
   const before = readdirSync(fixtureHome, { recursive: true }).sort();
-  mkdirSync(join(tmpdir(), 'agent-ops-noop'), { recursive: true });
-  assert.deepEqual(readdirSync(fixtureHome, { recursive: true }).sort(), before);
+
+  // The write path, not a no-op: a real edit, a real clear, and the pages that read them back.
+  const saved = await srv.post(`/sessions/${SESSION_A}/edit`, {
+    form: 'edit', label: 'Touched', tags: 'audit', note: 'written during a test', starred: '1', back: '/',
+  });
+  assert.equal(saved.status, 303);
+  assert.deepEqual(readStore()[SESSION_A], {
+    label: 'Touched', tags: ['audit'], note: 'written during a test', starred: true,
+  });
+  assert.match(await srv.text('/'), /Touched/, 'the dashboard reads the edit back');
+  assert.equal((await srv.get(`/sessions/${SESSION_A}`)).status, 200);
+  await srv.post(`/sessions/${SESSION_A}/edit`, { clear: '1', back: '/' });
+
+  assert.deepEqual(readdirSync(fixtureHome, { recursive: true }).sort(), before,
+    'not one entry of the agent home changed while the dashboard wrote');
+  assert.ok(!sessionsFile().startsWith(fixtureHome), 'the store file is not inside the agent home');
+  assert.ok(!labelsFile().startsWith(fixtureHome));
 });
