@@ -442,6 +442,70 @@ td.when { white-space: nowrap; }
 .mark-4 { background: var(--mark-4); }
 .mark-5 { background: var(--mark-5); }
 
+/* ---- session and project pages ------------------------------------------------- */
+/* One page head block: title, then quiet fact lines, then the resume command. */
+.page-head { margin-bottom: var(--s5); }
+.page-head h1 { display: flex; align-items: center; gap: var(--s3); }
+.page-head .sub { margin-bottom: var(--s2); }
+.page-head .sub:last-of-type { margin-bottom: 0; }
+.facts-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); font-size: var(--size-sm); }
+.facts-line .sep { color: var(--line-strong); }
+.facts-line .id { color: var(--text-soft); }
+.named-flag { font-size: var(--size-sm); font-weight: 400; color: var(--muted); display: inline-flex; align-items: center; }
+
+/* The one command worth copying off this page, so it gets a surface of its own. */
+.resume-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin: var(--s3) 0 0; }
+.resume {
+  padding: var(--s1) var(--s3);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface-sunken); color: var(--text);
+  user-select: all;
+}
+.edit-link { display: inline-flex; align-items: center; font-size: var(--size-sm); }
+
+/* An estimate is labelled as one, every time it is shown. */
+.cost-note { display: flex; align-items: center; margin: var(--s3) 0 0; color: var(--text-soft); font-size: var(--size-sm); }
+.cost-note .icon { color: var(--muted); }
+.tool-name { font-weight: 600; }
+.extras-list { list-style: none; margin: 0 0 var(--s2); padding: 0; display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); font-size: var(--size-sm); }
+.extras-list li { display: inline-flex; align-items: center; gap: var(--s2); }
+
+/* ---- timeline ------------------------------------------------------------------ */
+/* One row per journal event: clock, kind icon, what it was, then its numbers. No text
+   from the conversation ever reaches this list; the reader never loads any. */
+.timeline {
+  list-style: none; margin: 0; padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.tl-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--size-sm);
+}
+.tl-row:last-child { border-bottom: 0; }
+.tl-row .icon { color: var(--muted); align-self: center; }
+.tl-time { color: var(--muted); font-family: var(--font-data); font-size: var(--size-xs); min-width: 8ch; }
+.tl-what { font-weight: 600; }
+.tl-nums { color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.tl-tools { color: var(--muted); font-size: var(--size-xs); }
+.tl-kind-prompt { background: var(--surface-sunken); }
+.tl-kind-prompt .icon, .tl-kind-prompt .tl-what { color: var(--accent-strong); }
+.tl-kind-compact .icon { color: var(--warn); }
+.tl-kind-turn .icon { color: var(--accent); }
+
+/* chip: a one-word outcome next to a tool result */
+.chip {
+  padding: 0 var(--s2);
+  border-radius: 999px;
+  font-size: var(--size-xs);
+  border: 1px solid transparent;
+}
+.chip-ok { background: var(--good-tint); color: var(--good); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
+.chip-bad { background: var(--bad-tint); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+
 /* ---- narrow screens: the table becomes a list of labelled rows ------------------- */
 @media (max-width: 720px) {
   .top-inner, main, .foot-inner { padding-inline: var(--s4); }
@@ -456,6 +520,8 @@ td.when { white-space: nowrap; }
   .stat:nth-child(2n) { border-right: 0; }
   .rename-link { opacity: 1; }
   .project-path { max-width: 100%; }
+  .timeline .tl-row { padding: var(--s2) var(--s3); }
+  .resume { overflow-wrap: anywhere; }
   thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   table, tbody, tr, td { display: block; }
   tr { padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); }

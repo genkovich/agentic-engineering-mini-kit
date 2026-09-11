@@ -17,9 +17,22 @@
 
 `views/charts.js` — примітиви inline-SVG і контролів: `columnChart(buckets, { key, label, series, tip, fallback, formatMax })` малює складені стовпчики по масиву бакетів (день, тиждень, хід), кожен бакет несе `label` для осі, а порожній масив дає голу рамку з написом «No activity to chart yet.» замість помилки; `sparkline(values, { label })`, `shareBar(segments, { className })`, `segmented(items)`, `stat(icon, value, label, title)` і `mark(colors, projectDirName)` / `slotOf(colors, dir)` — мапа кольорів передається явно, модульного стану в шарі немає. Імпортує лише `esc` та `icon` з `layout.js`.
 
-`views/session-index.js` — головна сторінка, дашборд. Експортує три функції: `renderDashboardPanels(dash, state, colors, notes)` (смужка зведення, примітки, моделі, заголовок активності з перемикачем періоду, два графіки, таблиця проєктів), `renderSessionsList(sessions, state, meta)` (заголовок, тулбар пошуку й ліміту, причому `<select name="project">` рендериться лише на «/», таблиця сесій або відфільтрований порожній стан) і `renderSessionIndex(sessions, meta)`, що складає їх разом зі скоуп-рядком і тримає порожній стан. Перші дві перевикористовують сторінки проєкту й сесії. Назва сесії в рядку це посилання на `/sessions/<id>`, id сесії лежить у `title` комірки; колонка часу зветься «Last activity». Агрегати приходять готовими в `meta.dashboard` з `listSessions()`; порожній стан через `empty()`; примітки (`invalidLimitNote`, `invalidDaysNote`, `truncated`, `unreadableCount`) через `esc()`. Стан сторінки живе в параметрах запиту: `href(state, overrides)` пише лише недефолтні значення, а `state.base` («/» або «/projects/<dir>») задає, куди ведуть посилання — `project` потрапляє в запит тільки на «/». Сам не звертається до диска.
+`views/session-index.js` — головна сторінка, дашборд. Експортує чотири функції: `renderDashboardPanels(dash, state, colors, notes)` (смужка зведення, примітки, моделі, заголовок активності з перемикачем періоду, два графіки, таблиця проєктів), `renderSessionsList(sessions, state, meta)` (заголовок, тулбар пошуку й ліміту, причому `<select name="project">` рендериться лише на «/», таблиця сесій або відфільтрований порожній стан) `renderSessionIndex(sessions, meta)`, що складає їх разом зі скоуп-рядком і тримає порожній стан, і `renderNotes(meta)` — абзаци `.note` для того, що пішло не так (спільні зі сторінкою проєкту). Перші дві перевикористовують сторінки проєкту й сесії. Назва сесії в рядку це посилання на `/sessions/<id>`, комірка проєкту й рядок таблиці Projects ведуть на `/projects/<dir>`, а легенда графіка лишає фільтр `?project=` на місці; id сесії лежить у `title` комірки; колонка часу зветься «Last activity». Агрегати приходять готовими в `meta.dashboard` з `listSessions()`; порожній стан через `empty()`; примітки (`invalidLimitNote`, `invalidDaysNote`, `truncated`, `unreadableCount`) через `esc()`. Стан сторінки живе в параметрах запиту: `href(state, overrides)` пише лише недефолтні значення, а `state.base` («/» або «/projects/<dir>») задає, куди ведуть посилання — `project` потрапляє в запит тільки на «/». Сам не звертається до диска.
 
 `views/rename.js` — форма власної назви сесії. Експортує `renderRename({ session, label, back })`: одна `<form method="post">` з полем `label`, кнопкою очищення і прихованим `back` для повернення. Єдина сторінка, за якою стоїть запис, і пише він у `AGENT_OPS_HOME` через `lib/store.js`, не в теку агента.
+
+`views/session.js` — сторінка однієї сесії. Експортує `renderSession({ session, colors, back, asOf })`: шапка
+(назва, мітка «named by you», проєкт-посилання, id, тривалість, ходи, промпти, моделі), команда
+`claude --resume <id>` з посиланням «Edit», рядок вартості (`.cost-note`), смужка чисел, частки моделей,
+таблиця інструментів, `columnChart` за ходами і хронологія `<ol class="timeline">`. `asOf` це дата таблиці
+цін: view не імпортує `lib/*`, тому `PRICING.asOf` передає сервер. На обрізаній сесії графік ходів і
+хронологія несуть примітку, що перші N подій згорнуто, а аналітика рахована по всьому журналу. Жодне поле
+рядка хронології не несе тексту розмови: там лише вид події, модель або назва інструмента й числа.
+
+`views/project.js` — сторінка одного проєкту. Експортує `renderProject({ project, dash, sessions, state,
+colors, notes, meta })`: шапка проєкту, далі `renderDashboardPanels` на звуженому дашборді й
+`renderSessionsList`. `state.base` це `/projects/<dir>`, тому жодне посилання сторінки не пише `?project=`,
+а `<select name="project">` у тулбарі не рендериться.
 
 Інлайн-стилі заборонені CSP, тому ширина смужок і стовпчиків задається атрибутами SVG, а не `style=`.
 
@@ -29,7 +42,7 @@
 
 `views/session-index.js` і `views/rename.js` імпортують лише `esc`/`empty`/`icon` з `views/layout.js` плюс `views/format.js` і `views/charts.js`; імпортів з `lib/*` у шарі немає. Усе потрібне приходить у записах сесій (`name`, `label`, `title`, `projectName`, `projectPath`, `projectDerived`, `stats`) і в `meta.dashboard`.
 
-Споживач обох це `server.js`. Маршрут `GET /` читає `?limit`, `?q`, `?project` і `?days` (`parseLimit` і `parseDays` у `server.js`: невалідне значення відкочується на дефолт і додає примітку), викликає `listSessions({ limit, q, project, labels })`, передає результат у `renderSessionIndex()` і складає body для `layout()`: `res.type('html').send(layout({...}))`. Нова сторінка йде тим самим шляхом: рядок або функція рендеру → `layout()` → `res.send()`. Маршрути `GET`/`POST /sessions/:id/rename` рендерять `renderRename()` і після запису відповідають `303` на `back`.
+Споживач обох це `server.js`. Маршрут `GET /` читає `?limit`, `?q`, `?project` і `?days` (`parseLimit` і `parseDays` у `server.js`: невалідне значення відкочується на дефолт і додає примітку), викликає `listSessions({ limit, q, project, labels })`, передає результат у `renderSessionIndex()` і складає body для `layout()`: `res.type('html').send(layout({...}))`. Нова сторінка йде тим самим шляхом: рядок або функція рендеру → `layout()` → `res.send()`. Маршрути `GET`/`POST /sessions/:id/rename` рендерять `renderRename()` і після запису відповідають `303` на `back`. `GET /sessions/:id` віддає `renderSession()` (id валідує сам `getSession`, невідомий → сторінка 404), `GET /projects/:dir` перевіряє `dir` регуляркою і шукає його серед знайдених проєктів, ніколи не складаючи зі значення шлях; обидві сторінки підключають `/dashboard.js` через `head`, бо рендерять `columnChart`.
 
 ## Стилі
 

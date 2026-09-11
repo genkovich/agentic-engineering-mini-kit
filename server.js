@@ -4,8 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { claude, claudeHome, listSessions, getSession, PERIOD_CHOICES } from './lib/claude/index.js';
 import { listSources } from './lib/sources.js';
 import { layout } from './views/layout.js';
-import { renderSessionIndex } from './views/session-index.js';
+import { renderSessionIndex, renderNotes } from './views/session-index.js';
 import { renderRename } from './views/rename.js';
+import { renderSession } from './views/session.js';
+import { renderProject } from './views/project.js';
+import { PRICING } from './lib/pricing.js';
 import { readLabels, setLabel } from './lib/store.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -89,6 +92,81 @@ ${renderSessionIndex(result.sessions, {
   }));
 });
 
+const CHART_SCRIPT = '<script src="/dashboard.js" defer></script>';
+
+// A page that says "not here" instead of a stack trace: same shell, same wording as the rename
+// 404, so a mistyped URL never looks like a crash.
+function notFoundPage(res, heading, sentence) {
+  res.status(404).type('html').send(layout({
+    title: 'agent-ops', current: '/', source: claude.label, home: claudeHome(),
+    body: `<h1>${heading}</h1><p class="sub">${sentence} <a href="/">Back to the dashboard</a></p>`,
+  }));
+}
+
+// One session. `getSession` validates the id itself and answers null for anything it cannot
+// name, so the param never reaches the filesystem as a path fragment.
+app.get('/sessions/:id', (req, res) => {
+  const session = getSession(req.params.id, { labels: readLabels() });
+  if (!session) {
+    notFoundPage(res, 'Session not found', 'No session with that id is in the index.');
+    return;
+  }
+  const { colors } = listSessions({ limit: 1 });
+  const back = `/sessions/${session.sessionId}`;
+  res.type('html').send(layout({
+    title: 'agent-ops',
+    current: '/',
+    source: claude.label,
+    home: claudeHome(),
+    head: CHART_SCRIPT,
+    body: renderSession({ session, colors, back, asOf: PRICING.asOf }),
+  }));
+});
+
+// A project directory name as it sits on disk. It is matched against the names the scan already
+// found rather than joined into a path, so no value from the URL ever addresses the filesystem.
+const PROJECT_DIR = /^[A-Za-z0-9._-]{1,300}$/;
+
+app.get('/projects/:dir', (req, res) => {
+  const dir = req.params.dir;
+  const { limit, invalidLimitNote } = parseLimit(req.query.limit);
+  const q = parseText(req.query.q, 100);
+  const { days, invalidDaysNote } = parseDays(req.query.days);
+  if (!PROJECT_DIR.test(dir)) {
+    notFoundPage(res, 'Project not found', 'No project directory with that name is in the index.');
+    return;
+  }
+  const result = listSessions({ limit, q, project: dir, days, labels: readLabels() });
+  const project = result.projects.find((p) => p.projectDirName === dir);
+  if (!project) {
+    notFoundPage(res, 'Project not found', 'No project directory with that name is in the index.');
+    return;
+  }
+  const state = { base: `/projects/${dir}`, q, project: dir, limit, days };
+  res.type('html').send(layout({
+    title: 'agent-ops',
+    current: '/',
+    source: claude.label,
+    home: claudeHome(),
+    head: CHART_SCRIPT,
+    body: renderProject({
+      project,
+      dash: result.dashboard,
+      sessions: result.sessions,
+      state,
+      colors: result.colors,
+      notes: renderNotes({ invalidLimitNote, invalidDaysNote, unreadableCount: result.unreadableCount }),
+      meta: {
+        projects: result.projects,
+        colors: result.colors,
+        totalSessions: result.totalSessions,
+        totalFound: result.totalFound,
+        truncated: result.truncated,
+      },
+    }),
+  }));
+});
+
 // Only a same-origin path is accepted as the place to return to, so the redirect can never
 // leave the dashboard.
 function safeBack(raw) {
@@ -98,8 +176,7 @@ function safeBack(raw) {
 app.get('/sessions/:id/rename', (req, res) => {
   const session = getSession(req.params.id, { labels: readLabels() });
   if (!session) {
-    res.status(404).type('html').send(layout({ title: 'agent-ops', current: '/', source: claude.label, home: claudeHome(),
-      body: '<h1>Session not found</h1><p class="sub">No session with that id is in the index. <a href="/">Back to the dashboard</a></p>' }));
+    notFoundPage(res, 'Session not found', 'No session with that id is in the index.');
     return;
   }
   const back = safeBack(req.query.back);

@@ -36,7 +36,8 @@ function projectDescriptor(name, path, derived) {
   return `<span class="project-name">${esc(name)}</span><span class="project-path" title="${esc(path)}">${esc(path)}</span>${flag}`;
 }
 
-function buildNotes(meta) {
+// Page-level warnings, shared with the project page: only things that actually went wrong.
+export function renderNotes(meta) {
   const notes = [];
   if (meta.invalidLimitNote) notes.push(meta.invalidLimitNote);
   if (meta.invalidDaysNote) notes.push(meta.invalidDaysNote);
@@ -143,9 +144,11 @@ function projectSpark(dash, projectDirName) {
   return sparkline(dash.days.map((d) => d.byProject[projectDirName]?.sessions ?? 0));
 }
 
+// The project cell is a link to the project's own page; the chart legend keeps the `?project=`
+// filter, so the dashboard can still be narrowed in place without leaving it.
 function buildProjects(dash, state, colors) {
   const rows = dash.projects.map((p) => `<tr${p.projectDirName === state.project ? ' class="on"' : ''}>
-<td data-label="Project"><a class="project" href="${esc(href(state, { project: p.projectDirName }))}">${mark(colors, p.projectDirName)}${projectDescriptor(p.name, p.path, p.derived)}</a></td>
+<td data-label="Project"><a class="project" href="/projects/${esc(p.projectDirName)}">${mark(colors, p.projectDirName)}${projectDescriptor(p.name, p.path, p.derived)}</a></td>
 <td class="spark-cell" data-label="Last ${dash.span} days">${projectSpark(dash, p.projectDirName)}</td>
 <td class="num" data-label="Sessions">${p.count}</td>
 <td class="num" data-label="Turns">${p.turns}</td>
@@ -248,7 +251,7 @@ function nameCell(session, state) {
 function sessionRow(session, state, colors) {
   return `<tr>
 <td data-label="Name">${nameCell(session, state)}</td>
-<td data-label="Project"><a class="project" href="${esc(href(state, { project: session.projectDirName }))}">${mark(colors, session.projectDirName)}<span class="project-name">${esc(session.projectName)}</span></a></td>
+<td data-label="Project"><a class="project" href="/projects/${esc(session.projectDirName)}">${mark(colors, session.projectDirName)}<span class="project-name">${esc(session.projectName)}</span></a></td>
 <td class="id" data-label="Session" title="${esc(session.sessionId)}">${esc(session.sessionId)}</td>
 <td class="num" data-label="Turns">${session.stats.turns}</td>
 <td class="num" data-label="Output tokens" title="${session.stats.tokens.output} output, ${session.stats.tokens.input} input, ${session.stats.tokens.cacheRead + session.stats.tokens.cacheWrite} cache">${humanCount(session.stats.tokens.output)}</td>
@@ -304,7 +307,7 @@ export function renderSessionIndex(sessions, meta = {}) {
     days: meta.days ?? DEFAULT_DAYS,
   };
   const colors = meta.colors ?? {};
-  const notesHtml = buildNotes({ ...meta, shown: sessions.length });
+  const notesHtml = renderNotes({ ...meta, shown: sessions.length });
   const projects = meta.projects ?? [];
   const dash = meta.dashboard;
 

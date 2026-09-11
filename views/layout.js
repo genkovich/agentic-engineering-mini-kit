@@ -29,6 +29,11 @@ const ICONS = {
   tag: '<path d="M2.5 3.5v4.4l6.1 6.1 5.4-5.4-6.1-6.1H3.5a1 1 0 0 0-1 1z"/><circle cx="5.5" cy="6.5" r=".9"/>',
   sun: '<circle cx="8" cy="8" r="3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
   moon: '<path d="M13 10.2A5.5 5.5 0 0 1 5.8 3a5.5 5.5 0 1 0 7.2 7.2z"/>',
+  tool: '<path d="M10.4 2.4a3.6 3.6 0 0 0-4.3 4.6L2.6 10.5a1.4 1.4 0 0 0 2 2l3.5-3.5a3.6 3.6 0 0 0 4.6-4.3L11 5.2 9.3 4.6z"/>',
+  compact: '<path d="M2.5 8h11M5.5 4.5L8 2l2.5 2.5M5.5 11.5L8 14l2.5-2.5"/>',
+  agent: '<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5a5 5 0 0 1 10 0"/>',
+  clock: '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>',
+  dollar: '<path d="M8 2v12M10.8 4.9A2.7 2.7 0 0 0 8.3 3.4h-.6a2.3 2.3 0 0 0 0 4.6h.6a2.3 2.3 0 0 1 0 4.6h-.6a2.7 2.7 0 0 1-2.5-1.5"/>',
 };
 
 const SPRITE = `<svg hidden aria-hidden="true">${Object.entries(ICONS)
