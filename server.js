@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { claudeHome } from './lib/claude/index.js';
 import { listSources } from './lib/sources.js';
-import { layout, empty } from './views/layout.js';
+import { layout, empty, esc } from './views/layout.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const app = express();
@@ -18,7 +18,7 @@ app.get('/', (req, res) => {
   res.type('html').send(layout({
     title: 'agent-ops',
     body: `<h1>agent-ops</h1>
-<p class="sub">Reading ${claudeHome()}</p>
+<p class="sub">Reading ${esc(claudeHome())}</p>
 ${empty('No slice is wired up yet.')}`,
   }));
 });
